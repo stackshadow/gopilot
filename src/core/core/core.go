@@ -220,10 +220,18 @@ func ConfigSave() {
 }
 
 func onMessage(message *msgbus.Msg, group, command, payload string) {
+
+	// from here: all nodes can request these
 	if command == "nodeNameGet" {
 		message.Answer(&corePlugin, "nodeName", NodeName)
 		return
 	}
+
+	// from here: only commands for THIS node
+	if message.NodeTarget != NodeName {
+		return
+	}
+
 	if command == "getNodes" {
 
 		IterateNodes(func(nodeName string, nodeType int, host string, port int) {
@@ -247,5 +255,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 				return
 			}
 		*/
+	}
+
+	if command == "ping" {
+		message.Answer(&corePlugin, "pong", "")
+		return
 	}
 }
