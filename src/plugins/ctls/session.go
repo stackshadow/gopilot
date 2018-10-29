@@ -188,12 +188,9 @@ const certCheckReq int = 1
 
 func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 
-	nodeObject := core.GetNodeObject(curSession.remoteNodeName)
-	if nodeObject == nil {
-		logging.Error("CLIENT", fmt.Sprintf(
-			"Node '%s' not exist in config",
-			curSession.remoteNodeName,
-		))
+	nodeObject, err := core.GetNodeObject(curSession.remoteNodeName)
+	if err != nil {
+		logging.Error("CLIENT", err.Error())
 		return certCheckErr
 	}
 
@@ -209,7 +206,7 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 				curSession.remoteNodeName, peerCertSignature),
 			)
 
-			(*nodeObject)["peerCertReqSignature"] = fmt.Sprintf("%x", peerCertSignature)
+			(*nodeObject)["peerCertSignatureReq"] = fmt.Sprintf("%x", peerCertSignature)
 			core.ConfigSave()
 			return certCheckReq
 		}
@@ -240,7 +237,7 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 
 func (curSession *tlsSession) handleChallange() bool {
 
-	nodeObject := core.GetNodeObject(curSession.remoteNodeName)
+	nodeObject, err := core.GetNodeObject(curSession.remoteNodeName)
 	bufReader := bufio.NewReader(curSession.conn)
 
 	// no shared secret
@@ -405,7 +402,11 @@ func (curSession *tlsSession) onMessage(message *msgbus.Msg, group, command, pay
 	}
 
 	// only message to remoteNodeName will be sended
-	if message.NodeTarget != curSession.remoteNodeName || len(message.NodeTarget) != 0 {
+	if /* message.NodeTarget != curSession.remoteNodeName || */ len(message.NodeTarget) == 0 {
+		curSession.logging.Debug("onMessage", fmt.Sprintf(
+			"I will not send out messages, which are not for target. '%s' != '%s'",
+			message.NodeTarget, curSession.remoteNodeName,
+		))
 		return
 	}
 
