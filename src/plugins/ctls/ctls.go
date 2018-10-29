@@ -44,6 +44,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -65,6 +66,7 @@ var serverAdress string   // set server of this node
 var remoteNodeName string // connect to remote node
 var remoteNodeHost string // the remote host
 var remoteAcceptNode string
+var remoteRejectNode string // we will forget for this nodeName the sharedSecret, and TLS-Keys
 
 var logging clog.Logger
 
@@ -74,6 +76,7 @@ func ParseCmdLine() {
 	flag.StringVar(&remoteNodeName, "remoteNodeName", "", "name - Connect to an remote node, this need also remoteNodeHost")
 	flag.StringVar(&remoteNodeHost, "remoteNodeHost", "", "hostname:port - Connection information for remote node")
 	flag.StringVar(&remoteAcceptNode, "acceptNode", "", "nodename - Accept an hash-request")
+	flag.StringVar(&remoteRejectNode, "rejectNode", "", "nodename - We forget all keys and secrets for this nodeName")
 }
 
 func Init() pluginCtls {
@@ -131,11 +134,12 @@ func Init() pluginCtls {
 
 		// set nodeName
 		core.SetNode(remoteNodeName, core.NodeTypeClient, host, port)
-		nodeObject := core.GetNodeObject(remoteNodeName)
-		if nodeObject == nil {
+		_, err = core.GetNodeObject(remoteNodeName)
+		if err != nil {
 			os.Exit(-1)
 		}
 
+		core.ConfigSave()
 		os.Exit(0)
 	}
 
@@ -145,13 +149,19 @@ func Init() pluginCtls {
 		os.Exit(0)
 	}
 
+	// we forget all secrets for this node
+	if remoteRejectNode != "" {
+		peerCertReject(remoteRejectNode)
+		os.Exit(0)
+	}
+
 	// register plugin on messagebus
 	newCtls.plugin = msgbus.NewPlugin("TLS")
 	newCtls.plugin.Register()
 	newCtls.plugin.ListenForGroup("tls", newCtls.onMessage)
 
 	// okay, get server-config
-	core.IterateNodes(func(nodeName string, nodeType int, host string, port int) {
+	core.IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
 
 		if nodeType == core.NodeTypeServer {
 			go newCtls.serve(fmt.Sprintf("%s:%d", host, port))
@@ -222,13 +232,10 @@ func ComputeHmac256(message string, secret string) string {
 // Accept requested Cert for an node
 func peerCertAcceptReqCert(nodeName string) error {
 
-	nodeObject := core.GetNodeObject(nodeName)
-	if nodeObject == nil {
-		logging.Error("CLIENT", fmt.Sprintf(
-			"Node '%s' not exist in config",
-			nodeName,
-		))
-		return errors.New("Node not exist in config")
+	nodeObject, err := core.GetNodeObject(nodeName)
+	if err != nil {
+		logging.Error("CLIENT", err.Error())
+		return err
 	}
 
 	// already exist, do nothing
@@ -240,20 +247,37 @@ func peerCertAcceptReqCert(nodeName string) error {
 	}
 
 	// no req-key exist, do nothing
-	if (*nodeObject)["peerCertReqSignature"] == nil {
+	if (*nodeObject)["peerCertSignatureReq"] == nil {
 		logging.Error("CLIENT", fmt.Sprintf(
 			"No key requested",
 		))
 		return errors.New("No key requested")
 	}
 
-	(*nodeObject)["peerCertSignature"] = (*nodeObject)["peerCertReqSignature"]
-	delete(*nodeObject, "peerCertReqSignature")
+	(*nodeObject)["peerCertSignature"] = (*nodeObject)["peerCertSignatureReq"]
+	delete(*nodeObject, "peerCertSignatureReq")
 	core.ConfigSave()
 
-	logging.Info("CLIENT", fmt.Sprintf(
-		"Accept requested key for node",
-	))
+	logging.Info("CLIENT", fmt.Sprintf("Accept requested key for node"))
+
+	return nil
+}
+
+// delete Certificate-Signatures and shared secret for this node
+func peerCertReject(nodeName string) error {
+
+	nodeObject, err := core.GetNodeObject(nodeName)
+	if err != nil {
+		logging.Error("CLIENT", err.Error())
+		return err
+	}
+
+	delete(*nodeObject, "peerCertSignature")
+	delete(*nodeObject, "peerCertSignatureReq")
+	delete(*nodeObject, "sharedSecret")
+
+	logging.Info("CLIENT", fmt.Sprintf("Remove all keys for '%s'", nodeName))
+	core.ConfigSave()
 
 	return nil
 }
@@ -342,6 +366,49 @@ func (curCtls *pluginCtls) onMessage(message *msgbus.Msg, group, command, payloa
 			message.Answer(&curCtls.plugin, "error", err.Error())
 			return
 		}
+	}
+
+	if command == "nodeReject" {
+		err := peerCertReject(payload)
+		if err == nil {
+			message.Answer(&curCtls.plugin, "nodeRejectOk", payload)
+			return
+		} else {
+			message.Answer(&curCtls.plugin, "error", err.Error())
+			return
+		}
+	}
+
+	if command == "nodeAdd" { // this add per default an incoming-node-type
+
+		// get new node
+		type msgNodeAdd struct {
+			Name string `json:"name"`
+			Host string `json:"host"`
+			Port int    `json:"port"`
+		}
+		var newNode msgNodeAdd
+		err := json.Unmarshal([]byte(payload), &newNode)
+		if err != nil {
+			fmt.Println("error: ", err)
+			return
+		}
+
+		core.SetNode(
+			newNode.Name,
+			core.NodeTypeIncoming,
+			newNode.Host,
+			newNode.Port,
+		)
+
+		message.Answer(&curCtls.plugin, "nodeAddOk", newNode.Name)
+		return
+	}
+
+	if command == "nodeDelete" {
+		core.DeleteNode(payload)
+		message.Answer(&curCtls.plugin, "nodeDeleteOk", payload)
+		return
 	}
 
 }
