@@ -65,7 +65,7 @@ const NodeTypeServer int = 1    // serve an connection
 const NodeTypeClient int = 2    // connect to an server as client
 const NodeTypeIncoming int = 3  // incoming connection from another node
 
-type nodesIterateFct func(string, int, string, int) // name, type, host, port
+type nodesIterateFct func(map[string]interface{}, string, int, string, int) // name, type, host, port
 
 func ConfigRead() {
 
@@ -116,11 +116,11 @@ func IterateNodes(nodesIterateFctPt nodesIterateFct) {
 				}
 
 				nodePort := 4444
-				if jsonNode["host"] != nil {
+				if jsonNode["port"] != nil {
 					nodePort = int(jsonNode["port"].(float64))
 				}
 
-				nodesIterateFctPt(nodeName, nodeType, nodeHost, nodePort)
+				nodesIterateFctPt(jsonNode, nodeName, nodeType, nodeHost, nodePort)
 			}
 		}
 	}
@@ -128,18 +128,18 @@ func IterateNodes(nodesIterateFctPt nodesIterateFct) {
 
 // This function return an map from the node with nodeName
 // This function DONT create a new Node inside the json if it dont exist
-func GetNodeObject(nodeName string) *map[string]interface{} {
+func GetNodeObject(nodeName string) (*map[string]interface{}, error) {
 
 	var jsonNode map[string]interface{}
 
 	if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
 		if jsonNodes[nodeName] != nil {
 			jsonNode = jsonNodes[nodeName].(map[string]interface{})
-			return &jsonNode
+			return &jsonNode, nil
 		}
 	}
 
-	return nil
+	return nil, errors.New(fmt.Sprintf("Node '%s' not found", nodeName))
 }
 
 func GetNode(nodeName string) (int, string, int, error) {
@@ -234,12 +234,24 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getNodes" {
 
-		IterateNodes(func(nodeName string, nodeType int, host string, port int) {
+		IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
+
+			var requested bool
+			var accepted bool
+
+			if jsonNode["peerCertSignatureReq"] != nil {
+				requested = true
+				accepted = false
+			}
+			if jsonNode["peerCertSignature"] != nil {
+				requested = false
+				accepted = true
+			}
 
 			message.Answer(&corePlugin, "node",
 				fmt.Sprintf(
-					"{\"%s\":{ \"host\":\"%s\", \"port\":%d, \"type\":%d } }",
-					nodeName, host, port, nodeType,
+					"{\"%s\":{ \"host\":\"%s\", \"port\":%d, \"type\":%d, \"req\": %t, \"acc\": %t } }",
+					nodeName, host, port, nodeType, requested, accepted,
 				),
 			)
 
@@ -255,6 +267,60 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 				return
 			}
 		*/
+	}
+
+	if command == "nodeSave" {
+
+		var jsonNewNodes map[string]interface{}
+		err := json.Unmarshal([]byte(payload), &jsonNewNodes)
+		if err != nil {
+			message.Answer(&corePlugin, "error", err.Error())
+			return
+		}
+
+		if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
+
+			for nodeName, jsonNodeInterface := range jsonNewNodes {
+				if jsonNode, ok := jsonNodeInterface.(map[string]interface{}); ok {
+					jsonNodes[nodeName] = jsonNode
+					message.Answer(&corePlugin, "nodeSaveOk", nodeName)
+				}
+			}
+
+		}
+
+		ConfigSave()
+
+		IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
+
+			var requested bool
+			var accepted bool
+
+			if jsonNode["peerCertSignatureReq"] == nil {
+				requested = true
+				accepted = false
+			}
+			if jsonNode["peerCertSignature"] == nil {
+				requested = false
+				accepted = true
+			}
+
+			message.Answer(&corePlugin, "node",
+				fmt.Sprintf(
+					"{\"%s\":{ \"host\":\"%s\", \"port\":%d, \"type\":%d, \"req\": %t, \"acc\": %t } }",
+					nodeName, host, port, nodeType, requested, accepted,
+				),
+			)
+
+		})
+		message.Answer(&corePlugin, "nodeEnd", "")
+
+	}
+
+	if command == "nodeDelete" {
+		DeleteNode(payload)
+		message.Answer(&corePlugin, "nodeDeleteOk", payload)
+		return
 	}
 
 	if command == "ping" {
