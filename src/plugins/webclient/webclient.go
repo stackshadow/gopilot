@@ -39,6 +39,7 @@ type pluginCWs struct {
 var webSocketAddr string
 var webServerAddr string
 var startWebServer bool
+var webServerRoot string
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -50,6 +51,7 @@ func ParseCmdLine() {
 	flag.StringVar(&webSocketAddr, "websocketaddr", "localhost:3333", "Web-Socket Adress for webinterface")
 	flag.StringVar(&webServerAddr, "webserveraddr", "localhost:9090", "Web-Server Adress for webinterface")
 	flag.BoolVar(&startWebServer, "webserver", false, "Enable Webserver")
+	flag.StringVar(&webServerRoot, "webroot", "/mnt/local/data/Develop/copilot/gopilotd-web/dist", "Root directory of webfiles")
 
 }
 
@@ -85,7 +87,7 @@ func (curCWs *pluginCWs) serveWebsocket() {
 
 func (curCWs *pluginCWs) serveWebserver() {
 	curCWs.logging.Info("WEBSERVER", fmt.Sprintf("Start webserver on %s", webServerAddr))
-	fs := http.FileServer(http.Dir("/mnt/local/data/Develop/copilot/gopilotd-web"))
+	fs := http.FileServer(http.Dir(webServerRoot))
 	http.Handle("/", fs)
 	http.ListenAndServe(webServerAddr, nil)
 }
@@ -124,13 +126,6 @@ func (curCWs *pluginCWs) onWebsocketMessage(w http.ResponseWriter, r *http.Reque
 
 		curCWs.plugin.PublishMsg(curMessage)
 
-		/*
-			err = curCWs.conn.WriteMessage(messageType, message)
-			if err != nil {
-				log.Println("write:", err)
-				break
-			}
-		*/
 	}
 }
 

@@ -22,11 +22,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 )
 
 type Msg struct {
-	id        int     `json:"-"`
-	pluginSrc *Plugin `json:"-"`
+	id            int    `json:"-"`
+	pluginNameSrc string `json:"-"`
 
 	NodeSource string `json:"s"`
 	NodeTarget string `json:"t"`
@@ -35,56 +36,100 @@ type Msg struct {
 	Payload    string `json:"v"`
 }
 
-type pluginCallback struct {
-	group     string
-	command   string
-	onMessage onMessageFct
+type MsgListener struct {
+	pluginName string
+	target     string // can be ""
+	group      string // can be ""
+	command    string // can be ""
+	onMessage  onMessageFct
 }
+
+var messageList chan Msg
+var messageListLastID int
+var messageListeners []MsgListener
+var messageListenersMutex sync.Mutex
 
 // callbacks
-type onMessageFct func(*Msg, string, string, string)
+type onMessageFct func(*Msg, string /* group */, string /*command*/, string /*payload*/) // For example: onMessage(message *msgbus.Msg, group, command, payload string)
 
-func (curPlugin *Plugin) ListenForGroup(group string, onMessageFP onMessageFct) {
+func MsgBusInit() {
+
+	messageList = make(chan Msg, 10)
+	messageListLastID = 0
+
+	for w := 1; w <= 1; w++ {
+		logging.Debug("WORKER "+strconv.Itoa(w), "Start")
+		go worker2(w, messageList)
+	}
+}
+
+func ListenForGroup(pluginName string, group string, onMessageFP onMessageFct) {
 
 	// create new plugin and append it
-	newCallback := pluginCallback{
-		group:     group,
-		command:   "",
-		onMessage: onMessageFP,
+	newListener := MsgListener{
+		pluginName: pluginName,
+		target:     "",
+		group:      group,
+		command:    "",
+		onMessage:  onMessageFP,
 	}
 
-	curPlugin.callbacks = append(curPlugin.callbacks, newCallback)
+	messageListenersMutex.Lock()
+	messageListeners = append(messageListeners, newListener)
+	messageListenersMutex.Unlock()
 
 	if group != "" {
-		logging.Debug(fmt.Sprintf("PLUGIN %s", curPlugin.name), "Listen for group: "+group)
+		logging.Debug(fmt.Sprintf("PLUGIN %s", newListener.pluginName), "Listen for group: "+group)
 	} else {
-		logging.Debug(fmt.Sprintf("PLUGIN %s", curPlugin.name), "Listen for all groups")
+		logging.Debug(fmt.Sprintf("PLUGIN %s", newListener.pluginName), "Listen for all groups")
 	}
 
-	logging.Debug(fmt.Sprintf(
-		"PLUGIN %s", curPlugin.name),
-		fmt.Sprintf("Plugin %s - Callbacks %d", curPlugin.name, len(curPlugin.callbacks)),
-	)
 }
 
-// publish an message to the BUS
-// @param pluginIDSrc An pointer to an int where the plugin id is saved ( which was create before with Register() )
-func (curPlugin *Plugin) Publish(nodeSource, nodeTarget, group, command, payload string) {
+func ListenNoMorePlugin(pluginName string) {
+
+	messageListenersMutex.Lock()
+	var NewMessageListeners []MsgListener
+
+	for listenerIndex, curListener := range messageListeners {
+		//curListener := messageListeners[listenerIndex]
+
+		if curListener.pluginName == pluginName {
+			logging.Debug(
+				fmt.Sprintf("PLUGIN %s", curListener.pluginName),
+				fmt.Sprintf("Remove Listener in index '%d' for target: '%s' group: '%s'", listenerIndex, curListener.target, curListener.group),
+			)
+		} else {
+			NewMessageListeners = append(NewMessageListeners, curListener)
+		}
+
+	}
+
+	messageListeners = NewMessageListeners
+	messageListenersMutex.Unlock()
+
+}
+
+func ListenersCount() int {
+	return len(messageListeners)
+}
+
+func Publish(pluginName string, nodeSource, nodeTarget, group, command, payload string) {
 
 	newMessage := Msg{
-		id:         messageListLastID,
-		pluginSrc:  curPlugin,
-		NodeSource: nodeSource,
-		NodeTarget: nodeTarget,
-		Group:      group,
-		Command:    command,
-		Payload:    payload,
+		id:            messageListLastID,
+		pluginNameSrc: pluginName,
+		NodeSource:    nodeSource,
+		NodeTarget:    nodeTarget,
+		Group:         group,
+		Command:       command,
+		Payload:       payload,
 	}
 
 	logging.Debug("MSG "+strconv.Itoa(newMessage.id),
 		fmt.Sprintf(
 			"FROM %s TO %s/%s/%s",
-			curPlugin.name, newMessage.NodeTarget, newMessage.Group, newMessage.Command,
+			newMessage.pluginNameSrc, newMessage.NodeTarget, newMessage.Group, newMessage.Command,
 		),
 	)
 
@@ -96,15 +141,15 @@ func (curPlugin *Plugin) Publish(nodeSource, nodeTarget, group, command, payload
 
 }
 
-func (curPlugin *Plugin) PublishMsg(newMessage Msg) {
+func PublishMsg(pluginName string, newMessage Msg) {
 
 	newMessage.id = messageListLastID
-	newMessage.pluginSrc = curPlugin
+	newMessage.pluginNameSrc = pluginName
 
 	logging.Debug("MSG "+strconv.Itoa(newMessage.id),
 		fmt.Sprintf(
 			"FROM %s TO %s/%s/%s",
-			curPlugin.name, newMessage.NodeTarget, newMessage.Group, newMessage.Command,
+			newMessage.pluginNameSrc, newMessage.NodeTarget, newMessage.Group, newMessage.Command,
 		),
 	)
 	messageListLastID++
@@ -115,7 +160,7 @@ func (curPlugin *Plugin) PublishMsg(newMessage Msg) {
 
 }
 
-func worker(no int, messages <-chan Msg) {
+func worker2(no int, messages <-chan Msg) {
 	workerName := fmt.Sprintf("WORKER %d", no)
 	logging.Debug(workerName, "Run")
 
@@ -124,61 +169,47 @@ func worker(no int, messages <-chan Msg) {
 		logging.Debug(workerName, fmt.Sprintf("MSG %d", curMessage.id))
 
 		//logging.Debug(workerName, fmt.Sprintf("pluginList contains %d Plugins", len(pluginList)))
-		for pluginIndex := range pluginList {
-			curPlugin := pluginList[pluginIndex]
 
-			logging.Debug(workerName, fmt.Sprintf("Plugin %s - Callbacks %d", curPlugin.name, len(curPlugin.callbacks)))
+		messageListenersMutex.Lock()
+		for listenerIndex := range messageListeners {
+			curListener := messageListeners[listenerIndex]
 
 			// skip if the sender is also the reciever
-			if curPlugin == curMessage.pluginSrc {
+			if curListener.pluginName == curMessage.pluginNameSrc {
 
 				logging.Debug(workerName,
 					fmt.Sprintf(
 						"[MSG %d] [PLUGIN '%s'] -> [PLUGIN '%s'] WE DONT SEND TO US",
-						curMessage.id, curMessage.pluginSrc.name, curPlugin.name,
+						curMessage.id, curMessage.pluginNameSrc, curListener.pluginName,
 					),
 				)
 
 				continue
 			}
 
-			/*
-				logging.Debug(workerName, fmt.Sprintf(
-					"[MSG %d] [PLUGIN '%s'] contains %d callbacks",
-					curMessage.id,
-					curMessage.pluginSrc.name,
-					len(curPlugin.callbacks)),
+			// check group
+			if curListener.group == "" || curListener.group == curMessage.Group {
+
+				logging.Debug(workerName,
+					fmt.Sprintf(
+						"[MSG %d] [PLUGIN '%s'] -> [PLUGIN '%s'] CALL",
+						curMessage.id, curMessage.pluginNameSrc, curListener.pluginName,
+					),
 				)
-			*/
 
-			//for callbackIndex := 0; callbackIndex < len(curPlugin.callbacks); callbackIndex++ {
-			for callbackIndex := range curPlugin.callbacks {
-				curCallback := curPlugin.callbacks[callbackIndex]
+				curListener.onMessage(&curMessage, curMessage.Group, curMessage.Command, curMessage.Payload)
 
-				// check group
-				if curCallback.group == "" || curCallback.group == curMessage.Group {
-
-					logging.Debug(workerName,
-						fmt.Sprintf(
-							"[MSG %d] [PLUGIN '%s'] -> [PLUGIN '%s'] CALL",
-							curMessage.id, curMessage.pluginSrc.name, curPlugin.name,
-						),
-					)
-
-					curCallback.onMessage(&curMessage, curMessage.Group, curMessage.Command, curMessage.Payload)
-
-				} else {
-					logging.Debug(workerName,
-						fmt.Sprintf(
-							"[MSG %d] [PLUGIN '%s'] -> [PLUGIN '%s']  GROUP DONT MATCH",
-							curMessage.id, curMessage.pluginSrc.name, curPlugin.name,
-						),
-					)
-				}
-
+			} else {
+				logging.Debug(workerName,
+					fmt.Sprintf(
+						"[MSG %d] [PLUGIN '%s'] -> [PLUGIN '%s']  GROUP DONT MATCH",
+						curMessage.id, curMessage.pluginNameSrc, curListener.pluginName,
+					),
+				)
 			}
 
 		}
+		messageListenersMutex.Unlock()
 
 	}
 
@@ -219,7 +250,8 @@ func FromJsonString(jsonString string) (Msg, error) {
 
 func (curMessage *Msg) Answer(curPlugin *Plugin, command, payload string) error {
 
-	curPlugin.Publish(
+	Publish(
+		curPlugin.id,
 		curMessage.NodeTarget,
 		curMessage.NodeSource,
 		curMessage.Group,

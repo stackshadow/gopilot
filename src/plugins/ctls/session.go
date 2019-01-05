@@ -21,12 +21,12 @@ package ctls
 import (
 	"bufio"
 	"core/clog"
-	"core/core"
 	"core/msgbus"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net"
+	"plugins/core"
 	"strings"
 )
 

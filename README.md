@@ -14,6 +14,16 @@ just switch, manage and switch back
 ## Rewrite
 This is a rewrite of the copilot-project in go, its nearly ready for first use.
 
+## Build
+First, set the gopath to local directory
+* `export GOPATH=${PWD}:$(go env GOPATH)`
+
+Then we need to install dependencies
+* go get
+
+Then build it
+* `go build -x -v -o gopilot src/copilotg.go`
+
 ## Thats work
  * Node to Server connection over TLS with cherry pick of certificate and challange request-response
  * Websocket-Server for web-client

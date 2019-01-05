@@ -20,11 +20,13 @@ package main
 
 import (
 	"core/clog"
-	"core/core"
 	"core/msgbus"
 	"flag"
 	"fmt"
+	"plugins/core"
 	"plugins/ctls"
+	"plugins/health"
+	"plugins/ldap"
 	"plugins/webclient"
 	"time"
 )
@@ -40,10 +42,12 @@ func main() {
 	core.ParseCmdLine()
 	webclient.ParseCmdLine()
 	ctls.ParseCmdLine()
+	ldapclient.ParseCmdLine()
 	flag.Parse()
 
 	clog.Init()
-	msgbus.Init()
+	msgbus.MsgBusInit()
+	msgbus.PluginsInit()
 
 	core.Init()
 	core.ConfigRead()
@@ -58,12 +62,10 @@ func main() {
 		core.ConfigSave()
 	}
 
-	//core.GetNodes(testNodeIter)
-	//core.SetNode("Test", core.NodeTypeUndefined, "remote", 1234)
-	//core.ConfigSave()
-
 	ctls.Init()
 	webclient.Init()
+	health.Init()
+	ldapclient.Init()
 
 	for {
 		time.Sleep(time.Second)

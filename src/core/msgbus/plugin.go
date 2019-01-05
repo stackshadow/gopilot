@@ -20,49 +20,35 @@ package msgbus
 
 import (
 	"core/clog"
+	"core/tools"
 
 	"fmt"
-	"strconv"
 )
 
 // structs
 type Plugin struct {
-	id        int
-	name      string
-	callbacks []pluginCallback
+	id   string
+	name string
 }
 
 var logging clog.Logger
 
 var pluginList []*Plugin
 
-var messageList chan Msg
-var messageListLastID int
-
-// vars
-var lastPluginID int
-
-func Init() {
+func PluginsInit() {
 
 	logging = clog.New("BUS")
 
-	messageList = make(chan Msg, 10)
 	pluginList = make([]*Plugin, 0)
 
-	for w := 1; w <= 1; w++ {
-		logging.Debug("WORKER "+strconv.Itoa(w), "Start")
-		go worker(w, messageList)
-	}
 }
 
 func NewPlugin(pluginName string) Plugin {
 
 	newPlugin := Plugin{
-		id:   lastPluginID,
+		id:   pluginName + "-" + tools.RandomString(4),
 		name: pluginName,
 	}
-
-	lastPluginID++
 
 	return newPlugin
 }
@@ -70,7 +56,7 @@ func NewPlugin(pluginName string) Plugin {
 func (curPlugin *Plugin) Register() {
 	pluginList = append(pluginList, curPlugin)
 
-	logging.Debug(fmt.Sprintf("PLUGIN %p", curPlugin),
+	logging.Debug(fmt.Sprintf("PLUGIN %s", curPlugin.id),
 		fmt.Sprintf(
 			"New Plugin '%s' registered. We now have %d plugins.",
 			curPlugin.name, len(pluginList),
@@ -102,4 +88,18 @@ func (curPlugin *Plugin) DeRegister() {
 			"",
 		)
 	}
+}
+
+func (curPlugin *Plugin) ListenForGroup(group string, onMessageFP onMessageFct) {
+	ListenForGroup(curPlugin.id, group, onMessageFP)
+}
+
+// publish an message to the BUS
+// @param pluginIDSrc An pointer to an int where the plugin id is saved ( which was create before with Register() )
+func (curPlugin *Plugin) Publish(nodeSource, nodeTarget, group, command, payload string) {
+	Publish(curPlugin.id, nodeSource, nodeTarget, group, command, payload)
+}
+
+func (curPlugin *Plugin) PublishMsg(newMessage Msg) {
+	PublishMsg(curPlugin.id, newMessage)
 }

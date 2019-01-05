@@ -37,7 +37,6 @@ openssl x509 -noout -text -in cerfile.cer
 */
 import (
 	"core/clog"
-	"core/core"
 	"core/msgbus"
 	"crypto/hmac"
 	"crypto/rand"
@@ -51,14 +50,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"plugins/core"
 	"strconv"
 	"time"
 )
-
-type pluginCtls struct {
-	plugin    msgbus.Plugin
-	sessionNo int
-}
 
 // options
 var newNode string        // create a new node with a new secret
@@ -68,7 +63,10 @@ var remoteNodeHost string // the remote host
 var remoteAcceptNode string
 var remoteRejectNode string // we will forget for this nodeName the sharedSecret, and TLS-Keys
 
+// private vars
+var plugin msgbus.Plugin
 var logging clog.Logger
+var sessionNo int
 
 func ParseCmdLine() {
 	flag.StringVar(&serverAdress, "serverAdress", "", "hostname:port - Enable the TLS-Server on hostname with port")
@@ -79,9 +77,7 @@ func ParseCmdLine() {
 	flag.StringVar(&remoteRejectNode, "rejectNode", "", "nodename - We forget all keys and secrets for this nodeName")
 }
 
-func Init() pluginCtls {
-
-	var newCtls pluginCtls
+func Init() {
 
 	logging = clog.New("TLS")
 
@@ -93,12 +89,12 @@ func Init() pluginCtls {
 
 		host, portString, err := net.SplitHostPort(serverAdress)
 		if err != nil {
-			logging.Error("serverAdress", fmt.Sprintf("remoteNode '%s': ", serverAdress, err))
+			logging.Error("serverAdress", fmt.Sprintf("remoteNode '%s': %s", serverAdress, err.Error()))
 			os.Exit(-1)
 		}
 		port, err := strconv.Atoi(portString)
 		if err != nil {
-			logging.Error("serverAdress", fmt.Sprintf("Can not convert port-string to int: ", err))
+			logging.Error("serverAdress", fmt.Sprintf("Can not convert port-string to int: %s", err.Error()))
 			os.Exit(-1)
 		}
 
@@ -123,12 +119,12 @@ func Init() pluginCtls {
 		// get host and port
 		host, portString, err := net.SplitHostPort(remoteNodeHost)
 		if err != nil {
-			logging.Error("NODE", fmt.Sprintf("remoteNode '%s': ", remoteNodeHost, err))
+			logging.Error("NODE", fmt.Sprintf("remoteNode '%s': %s", remoteNodeHost, err.Error()))
 			os.Exit(-1)
 		}
 		port, err := strconv.Atoi(portString)
 		if err != nil {
-			logging.Error("NODE", fmt.Sprintf("Can not convert port-string to int: ", err))
+			logging.Error("NODE", fmt.Sprintf("Can not convert port-string to int: %s", err.Error()))
 			os.Exit(-1)
 		}
 
@@ -156,23 +152,22 @@ func Init() pluginCtls {
 	}
 
 	// register plugin on messagebus
-	newCtls.plugin = msgbus.NewPlugin("TLS")
-	newCtls.plugin.Register()
-	newCtls.plugin.ListenForGroup("tls", newCtls.onMessage)
+	plugin = msgbus.NewPlugin("TLS")
+	plugin.Register()
+	plugin.ListenForGroup("tls", onMessage)
 
 	// okay, get server-config
 	core.IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
 
 		if nodeType == core.NodeTypeServer {
-			go newCtls.serve(fmt.Sprintf("%s:%d", host, port))
+			go serve(fmt.Sprintf("%s:%d", host, port))
 		}
 
 		if nodeType == core.NodeTypeClient {
-			go newCtls.connect(fmt.Sprintf("%s:%d", host, port))
+			go connect(fmt.Sprintf("%s:%d", host, port))
 		}
 	})
 
-	return newCtls
 }
 
 func CreateKeyPair(nodeName string) error {
@@ -282,7 +277,7 @@ func peerCertReject(nodeName string) error {
 	return nil
 }
 
-func (curCtls *pluginCtls) serve(serverString string) {
+func serve(serverString string) {
 
 	cer, err := tls.LoadX509KeyPair(core.NodeName+".crt", core.NodeName+".key")
 	if err != nil {
@@ -312,16 +307,16 @@ func (curCtls *pluginCtls) serve(serverString string) {
 		}
 
 		go NewSession(
-			fmt.Sprintf("%d", curCtls.sessionNo),
+			fmt.Sprintf("%d", sessionNo),
 			core.NodeTypeIncoming, conn,
 		)
 
-		curCtls.sessionNo++
+		sessionNo++
 	}
 
 }
 
-func (curCtls *pluginCtls) connect(clientString string) {
+func connect(clientString string) {
 
 	cer, err := tls.LoadX509KeyPair(core.NodeName+".crt", core.NodeName+".key")
 	if err != nil {
@@ -345,7 +340,7 @@ func (curCtls *pluginCtls) connect(clientString string) {
 		}
 
 		NewSession(
-			fmt.Sprintf("%d", curCtls.sessionNo),
+			fmt.Sprintf("%d", sessionNo),
 			core.NodeTypeClient, conn,
 		)
 
@@ -355,28 +350,28 @@ func (curCtls *pluginCtls) connect(clientString string) {
 
 }
 
-func (curCtls *pluginCtls) onMessage(message *msgbus.Msg, group, command, payload string) {
+func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "nodeAccept" {
 		err := peerCertAcceptReqCert(payload)
 		if err == nil {
-			message.Answer(&curCtls.plugin, "nodeAcceptOk", payload)
-			return
+			message.Answer(&plugin, "nodeAcceptOk", payload)
 		} else {
-			message.Answer(&curCtls.plugin, "error", err.Error())
-			return
+			message.Answer(&plugin, "error", err.Error())
 		}
+
+		return
 	}
 
 	if command == "nodeReject" {
 		err := peerCertReject(payload)
 		if err == nil {
-			message.Answer(&curCtls.plugin, "nodeRejectOk", payload)
-			return
+			message.Answer(&plugin, "nodeRejectOk", payload)
 		} else {
-			message.Answer(&curCtls.plugin, "error", err.Error())
-			return
+			message.Answer(&plugin, "error", err.Error())
 		}
+
+		return
 	}
 
 	if command == "nodeAdd" { // this add per default an incoming-node-type
@@ -401,13 +396,13 @@ func (curCtls *pluginCtls) onMessage(message *msgbus.Msg, group, command, payloa
 			newNode.Port,
 		)
 
-		message.Answer(&curCtls.plugin, "nodeAddOk", newNode.Name)
+		message.Answer(&plugin, "nodeAddOk", newNode.Name)
 		return
 	}
 
 	if command == "nodeDelete" {
 		core.DeleteNode(payload)
-		message.Answer(&curCtls.plugin, "nodeDeleteOk", payload)
+		message.Answer(&plugin, "nodeDeleteOk", payload)
 		return
 	}
 

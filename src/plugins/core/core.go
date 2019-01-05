@@ -210,6 +210,27 @@ func DeleteNode(nodeName string) {
 
 }
 
+func GetJsonObject(name string) (*map[string]interface{}, error) {
+
+	if jsonObject, ok := jsonConfig[name].(map[string]interface{}); ok {
+		return &jsonObject, nil
+	}
+
+	return nil, errors.New(fmt.Sprintf("No Object found with name '%s'", name))
+}
+
+func NewJsonObject(name string) (*map[string]interface{}, error) {
+	var jsonNode = make(map[string]interface{})
+
+	jsonConfig[name] = jsonNode
+
+	return &jsonNode, nil
+}
+
+func SetJsonObject(name string, jsonNode map[string]interface{}) {
+	jsonConfig[name] = jsonNode
+}
+
 func ConfigSave() {
 	byteValue, _ := json.MarshalIndent(jsonConfig, "", "    ")
 	err := ioutil.WriteFile(ConfigPath+"/core.json", byteValue, 0644)

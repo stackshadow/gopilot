@@ -22,23 +22,58 @@ import "testing"
 import "fmt"
 import "time"
 import "core/clog"
+import "os"
 
-func TestPluginList(t *testing.T) {
+func TestInit(t *testing.T) {
 
+	MsgBusInit()
 	Init()
 	clog.EnableDebug()
-	/*
-		var firstPlugin Plugin
-		var secondPlugin Plugin
-		thirdPluginID := 1
+}
 
-		firstPlugin = NewPlugin("First Plugin")
-		firstPlugin = NewPlugin("Second Plugin")
-	*/
+func TestRegisterDeregister(t *testing.T) {
+
+	// this test, register an listener, which should ONLY be called once,
+	// because all listeners will be deleted after
+	ListenForGroup("PLUGIN A", "", onlyOnSingleMessage)
+	ListenForGroup("PLUGIN B", "", onlyOnSingleMessage)
+	ListenForGroup("PLUGIN C", "", onlyOnSingleMessage)
+	ListenForGroup("PLUGIN D", "", onlyOnSingleMessage)
+	ListenForGroup("PLUGIN D", "", onlyOnSingleMessage)
+
+	if ListenersCount() != 5 {
+		t.Error("There should be 5 listeners...")
+		t.FailNow()
+		return
+	}
+
+	// remove listener
+	ListenNoMorePlugin("PLUGIN A")
+	ListenNoMorePlugin("PLUGIN C")
+	ListenNoMorePlugin("PLUGIN D")
+
+	if ListenersCount() != 1 {
+		t.Error("There should be 1 listeners...")
+		t.FailNow()
+		return
+	}
+
+	// send a message ( this now should be fired only once )
+	Publish("DUMMY", "sourceNode", "targetNode", "group", "command", "payload")
+
 	time.Sleep(time.Second * 2)
 }
 
-func TestJsonMessage(t *testing.T) {
+var onlyOnSingleMessageCount int = 0
+
+func onlyOnSingleMessage(message *Msg, group, command, payload string) {
+	if onlyOnSingleMessageCount > 0 {
+		os.Exit(-1)
+	}
+	onlyOnSingleMessageCount++
+}
+
+func aTestJsonMessage(t *testing.T) {
 
 	newMessage := Msg{
 		id:        1,
@@ -80,7 +115,7 @@ func TestJsonMessage(t *testing.T) {
 
 }
 
-func TestPluginListener(t *testing.T) {
+func aTestPluginListener(t *testing.T) {
 
 	var firstPluginID, secondPluginID, thirdPluginID Plugin
 
@@ -102,5 +137,19 @@ func TestPluginListener(t *testing.T) {
 }
 
 func testOnMessage(message *Msg, group, command, payload string) {
+	fmt.Println("GROUP: ", group, " CMD: ", command, " PAYLOAD: ", payload)
+}
+
+func onMultipleMessage(message *Msg, group, command, payload string) {
+	if group != "group" && group != "tst" {
+		os.Exit(-1)
+	}
+}
+func onSingleMessage(message *Msg, group, command, payload string) {
+	if group != "tst" {
+		os.Exit(-1)
+	}
+}
+func onNeverMessage(message *Msg, group, command, payload string) {
 	fmt.Println("GROUP: ", group, " CMD: ", command, " PAYLOAD: ", payload)
 }
