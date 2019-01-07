@@ -111,8 +111,9 @@ func BindConnect(hostname string, port int, binddn, password string) error {
 	// already connected
 	if ldapCon != nil {
 		err := errors.New(fmt.Sprintf("Already connected"))
-		logging.Error("BindConnect", err.Error())
-		return err
+		logging.Info("BindConnect", err.Error())
+		// yeah, we return nil here, because we would like connect, and we are connected
+		return nil
 	}
 
 	// connect
@@ -146,6 +147,33 @@ func disconnect() {
 	ldapConnected = false
 
 	logging.Info("disconnect", "Disconnected")
+}
+
+func PopulateDirectory(namespace, orgaName string) {
+	// If we are not connected, we dont do anything
+	if ldapCon == nil {
+		return
+	}
+
+	// maybe the orga changed
+	ldapOrgaObj = organizationInit(namespace, orgaName)
+	ldapOrgaObj.Add(ldapCon)
+
+	ldapDummy := inetOrgPersonInit(ldapOrgaObj.Dn, "dummy", "dummy", "Default")
+	ldapDummy.Add(ldapCon)
+	ldapDummy.ToJson(ldapCon)
+
+	ldapGroupsFolder := organizationalUnitInit(ldapOrgaObj.Dn, "groups", "The Folder for all groups")
+	ldapGroupsFolder.Add(ldapCon)
+
+	ldapUsersFolder := organizationalUnitInit(ldapOrgaObj.Dn, "users", "The Folder for all users")
+	ldapUsersFolder.Add(ldapCon)
+
+	ldapNextcloudGroup := groupOfNamesInit(ldapGroupsFolder.Dn, "nextcloud", ldapDummy.Dn)
+	ldapNextcloudGroup.Add(ldapCon)
+
+	ldapAdminUser := inetOrgPersonInit(ldapUsersFolder.Dn, "admin", "admin", "The")
+	ldapAdminUser.Add(ldapCon)
 }
 
 func OrganisationAdd(basedn, name string) error {
@@ -314,35 +342,20 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "connect" {
 
+		// read config-object from config-file
 		jsonLdapConfig := GetLdapConfig()
 
+		// try to connect
 		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
-		} else {
-			message.Answer(&plugin, "connected", "")
+			return
 		}
 
-		// maybe the orga changed
-		ldapOrgaObj = organizationInit(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
-		ldapOrgaObj.Add(ldapCon)
+		// Populate directory
+		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
 
-		ldapDummy := inetOrgPersonInit(ldapOrgaObj.Dn, "dummy", "dummy", "Default")
-		ldapDummy.Add(ldapCon)
-		ldapDummy.ToJson(ldapCon)
-
-		ldapGroupsFolder := organizationalUnitInit(ldapOrgaObj.Dn, "groups", "The Folder for all groups")
-		ldapGroupsFolder.Add(ldapCon)
-
-		ldapUsersFolder := organizationalUnitInit(ldapOrgaObj.Dn, "users", "The Folder for all users")
-		ldapUsersFolder.Add(ldapCon)
-
-		ldapNextcloudGroup := groupOfNamesInit(ldapGroupsFolder.Dn, "nextcloud", ldapDummy.Dn)
-		ldapNextcloudGroup.Add(ldapCon)
-
-		ldapAdminUser := inetOrgPersonInit(ldapUsersFolder.Dn, "admin", "admin", "The")
-		ldapAdminUser.Add(ldapCon)
-
+		message.Answer(&plugin, "connected", "")
 		return
 	}
 
@@ -361,6 +374,22 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	}
 
 	if command == "getObjects" {
+
+		// read config-object from config-file
+		jsonLdapConfig := GetLdapConfig()
+
+		// try to connect
+		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// Populate directory
+		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
+
+		// disconnect on return
+		defer disconnect()
 
 		tempSearchDN := ldapOrgaObj.Dn
 		if payload != "" {
@@ -405,6 +434,22 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	}
 
 	if command == "getObject" {
+
+		// read config-object from config-file
+		jsonLdapConfig := GetLdapConfig()
+
+		// try to connect
+		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// Populate directory
+		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
+
+		// disconnect on return
+		defer disconnect()
 
 		SearchOneFull(ldapCon, payload, func(entry *ldap.Entry) {
 
