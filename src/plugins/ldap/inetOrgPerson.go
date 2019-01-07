@@ -1,13 +1,15 @@
 package ldapclient
 
 /*
+RFC: https://tools.ietf.org/html/rfc2798 page 6
 class: inetOrgPerson
-MUST: sn cn
-MAX: audio $ businessCategory $ carLicense $ departmentNumber $ displayName
-$ employeeNumber $ employeeType $ givenName $ homePhone $ homePostalAddress
-$ initials $ jpegPhoto $ labeledURI $ mail $ manager $ mobile $ o $ pager
-$ photo $ roomNumber $ secretary $ uid $ userCertificate $ x500uniqueIdentifier
-$ preferredLanguage $ userSMIMECertificate $ userPKCS12
+MUST: 	cn $ objectClass $ sn
+MAY: 	description $ destinationIndicator $ facsimileTelephoneNumber $
+        internationaliSDNNumber $ l $ ou $ physicalDeliveryOfficeName $
+        postalAddress $ postalCode $ postOfficeBox $
+        preferredDeliveryMethod $ registeredAddress $ seeAlso $
+        st $ street $ telephoneNumber $ teletexTerminalIdentifier $
+        telexNumber $ title $ userPassword $ x121Address
 */
 func inetOrgPersonInit(basedn, uid, cn, sn string) ldapObject {
 
@@ -23,6 +25,7 @@ func inetOrgPersonInit(basedn, uid, cn, sn string) ldapObject {
 
 	newObject.SetMayAttr("mail", "")
 	newObject.SetMayAttr("displayName", "")
+	newObject.SetMayAttr("userPassword", "")
 
 	return newObject
 }
