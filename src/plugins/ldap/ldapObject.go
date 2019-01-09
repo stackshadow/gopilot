@@ -1,13 +1,29 @@
 package ldapclient
 
 //import "errors"
-import "encoding/json"
-import "fmt"
-import "errors"
-import "gopkg.in/ldap.v2"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"gopkg.in/ldap.v2"
+)
 
-var objectClasses []string
-var objectAttributes = []string{"objectClass", "memberof"}
+var globalObjClasses []string
+
+var globalAttrs map[string]bool = make(map[string]bool)
+
+func globalAttrAdd(attrName string) {
+	globalAttrs[attrName] = false
+}
+func globalAttrGet() []string {
+	var objectAttributes = []string{}
+
+	for key := range globalAttrs {
+		objectAttributes = append(objectAttributes, key)
+	}
+
+	return objectAttributes
+}
 
 type ldapObject struct {
 	DnBase      string   `json:"basedn"`
@@ -43,19 +59,73 @@ func ldapObjectCreate(objectClass []string, basedn, attrMain, attrMainValue stri
 	newObject.SetMustAttr(attrMain, attrMainValue)
 
 	//
-	objectClasses = append(objectClasses, objectClass...)
+	globalObjClasses = append(globalObjClasses, objectClass...)
 
 	return newObject
 }
 
 func (curObject *ldapObject) SetMustAttr(name, value string) {
+
+	// set must-attribute
 	curObject.attrMust[name] = value
-	objectAttributes = append(objectAttributes, name)
+
+	// if this attribute was the main attribute, we recreate the dn
+	if name == curObject.attrMain {
+		curObject.Dn = name + "=" + value + "," + curObject.DnBase
+	}
+
+	// remember it the attribute
+	globalAttrAdd(name)
 }
 
 func (curObject *ldapObject) SetMayAttr(name, value string) {
 	curObject.attrMay[name] = value
-	objectAttributes = append(objectAttributes, name)
+
+	// remember it the attribute
+	globalAttrAdd(name)
+}
+
+/*
+@detail
+This function don't log
+*/
+func (curObject *ldapObject) Exists(ldapConnection *ldap.Conn) (error, bool) {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected"), false
+	}
+
+	// create serch request
+	searchRequest := ldap.NewSearchRequest(
+		curObject.Dn,
+		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
+		"(&(objectClass="+curObject.ObjectClass[0]+"))",
+		[]string{"dn"},
+		nil,
+	)
+
+	// send serch request
+	sr, err := ldapConnection.Search(searchRequest)
+	if err != nil {
+
+		// on resultcode 32 ( not found ) no error occured
+		if err, ok := err.(*ldap.Error); ok {
+			if err.ResultCode == 32 {
+				return nil, false
+			}
+			return err, false
+		}
+
+		return err, false
+	}
+
+	// did we found something ?
+	if len(sr.Entries) > 0 {
+		return nil, true
+	}
+
+	return nil, false
 }
 
 func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
@@ -65,39 +135,38 @@ func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
 		return errors.New("Not connected")
 	}
 
-	logging.Debug(fmt.Sprintf("%s", curObject.Dn), "Check if DN already exist")
-	searchRequest := ldap.NewSearchRequest(
-		curObject.Dn,
-		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
-		"(&(objectClass="+curObject.ObjectClass[0]+"))",
-		[]string{"dn"},
-		nil,
-	)
-
-	sr, err := ldapConnection.Search(searchRequest)
-	if err == nil {
-		if len(sr.Entries) > 0 {
-			logging.Debug(fmt.Sprintf("%s", curObject.Dn), "Already exists, thats okay.")
-			return nil
-		}
-	} else {
-		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
-		//return err
+	// check if already exist
+	err, exist := curObject.Exists(ldapConnection)
+	if err != nil {
+		logging.Error(curObject.Dn, err.Error())
+		return err
+	}
+	if exist == true {
+		logging.Info(curObject.Dn, "Already exsits, do nothing")
+		return nil
 	}
 
 	// create add-request
 	addReq := ldap.NewAddRequest(curObject.Dn)
+
+	// add objectClass
 	addReq.Attribute("objectClass", curObject.ObjectClass)
+
+	// add Must-Attributes
 	for key, value := range curObject.attrMust {
 		if value != "" {
 			addReq.Attribute(key, []string{value})
 		}
 	}
+
+	// add May-Attributes
 	for key, value := range curObject.attrMay {
 		if value != "" {
 			addReq.Attribute(key, []string{value})
 		}
 	}
+
+	// Send out the request
 	err = ldapConnection.Add(addReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
@@ -122,6 +191,41 @@ func (curObject *ldapObject) Remove(ldapConnection *ldap.Conn) error {
 	}
 
 	logging.Info(fmt.Sprintf("%s", curObject.Dn), "Deleted")
+	return nil
+}
+
+func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
+	// create change-request
+	changeReq := ldap.NewModifyRequest(curObject.Dn)
+
+	// add Must-Attributes
+	for key, value := range curObject.attrMust {
+		if value != "" {
+			changeReq.Replace(key, []string{value})
+		}
+	}
+
+	// add May-Attributes
+	for key, value := range curObject.attrMay {
+		if value != "" {
+			changeReq.Replace(key, []string{value})
+		}
+	}
+
+	// Send out the request
+	err := ldapConnection.Modify(changeReq)
+	if err != nil {
+		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
+		return err
+	}
+
+	logging.Info(fmt.Sprintf("%s", curObject.Dn), "Changed")
 	return nil
 }
 
@@ -174,9 +278,9 @@ func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap
 	}
 
 	var classFilter string = "(|"
-	for index := range objectClasses {
+	for index := range globalObjClasses {
 		classFilter += "(objectClass="
-		classFilter += objectClasses[index]
+		classFilter += globalObjClasses[index]
 		classFilter += ")"
 	}
 	classFilter += ")"
@@ -185,7 +289,7 @@ func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap
 		basedn,
 		ldap.ScopeSingleLevel, ldap.NeverDerefAliases, 0, 0, false,
 		classFilter,
-		objectAttributes,
+		globalAttrGet(),
 		nil,
 	)
 
@@ -213,9 +317,9 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 	}
 
 	var classFilter string = "(|"
-	for index := range objectClasses {
+	for index := range globalObjClasses {
 		classFilter += "(objectClass="
-		classFilter += objectClasses[index]
+		classFilter += globalObjClasses[index]
 		classFilter += ")"
 	}
 	classFilter += ")"
@@ -224,7 +328,7 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 		fulldn,
 		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
 		classFilter,
-		objectAttributes,
+		globalAttrGet(),
 		nil,
 	)
 
