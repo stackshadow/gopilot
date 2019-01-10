@@ -20,12 +20,12 @@ func inetOrgPersonInit(basedn, uid, cn, sn string) ldapObject {
 		uid,
 	)
 
-	newObject.SetMustAttr("cn", cn)
-	newObject.SetMustAttr("sn", sn)
+	newObject.SetMustAttr("cn", []string{cn})
+	newObject.SetMustAttr("sn", []string{sn})
 
-	newObject.SetMayAttr("mail", "")
-	newObject.SetMayAttr("displayName", "")
-	newObject.SetMayAttr("userPassword", "")
+	newObject.SetMayAttr("mail", []string{""})
+	newObject.SetMayAttr("displayName", []string{""})
+	newObject.SetMayAttr("userPassword", []string{""})
 
 	return newObject
 }

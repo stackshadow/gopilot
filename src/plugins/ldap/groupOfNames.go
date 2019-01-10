@@ -14,7 +14,7 @@ func groupOfNamesInit(basedn, cn, firstmember string) ldapObject {
 		cn,
 	)
 
-	newObject.SetMustAttr("member", firstmember)
+	newObject.SetMustAttr("member", []string{firstmember})
 
 	return newObject
 }

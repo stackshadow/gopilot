@@ -31,8 +31,8 @@ type ldapObject struct {
 	Dn          string   `json:"dn"`
 
 	attrMain string
-	attrMust map[string]string
-	attrMay  map[string]string
+	attrMust map[string][]string
+	attrMay  map[string][]string
 }
 
 type ldapObjectJson struct {
@@ -52,11 +52,11 @@ func ldapObjectCreate(objectClass []string, basedn, attrMain, attrMainValue stri
 		newObject.Dn += "," + basedn
 	}
 
-	newObject.attrMust = make(map[string]string)
-	newObject.attrMay = make(map[string]string)
+	newObject.attrMust = make(map[string][]string)
+	newObject.attrMay = make(map[string][]string)
 
 	// set the main attr as MUST ( because it is )
-	newObject.SetMustAttr(attrMain, attrMainValue)
+	newObject.SetMustAttr(attrMain, []string{attrMainValue})
 
 	//
 	globalObjClasses = append(globalObjClasses, objectClass...)
@@ -64,21 +64,32 @@ func ldapObjectCreate(objectClass []string, basedn, attrMain, attrMainValue stri
 	return newObject
 }
 
-func (curObject *ldapObject) SetMustAttr(name, value string) {
+func (curObject *ldapObject) SetMustAttr(name string, value []string) {
+
+	//
+	if name == "" {
+		return
+	}
 
 	// set must-attribute
 	curObject.attrMust[name] = value
 
 	// if this attribute was the main attribute, we recreate the dn
 	if name == curObject.attrMain {
-		curObject.Dn = name + "=" + value + "," + curObject.DnBase
+		curObject.Dn = name + "=" + value[0] + "," + curObject.DnBase
 	}
 
 	// remember it the attribute
 	globalAttrAdd(name)
 }
 
-func (curObject *ldapObject) SetMayAttr(name, value string) {
+func (curObject *ldapObject) SetMayAttr(name string, value []string) {
+
+	//
+	if name == "" {
+		return
+	}
+
 	curObject.attrMay[name] = value
 
 	// remember it the attribute
@@ -154,16 +165,12 @@ func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
 
 	// add Must-Attributes
 	for key, value := range curObject.attrMust {
-		if value != "" {
-			addReq.Attribute(key, []string{value})
-		}
+		addReq.Attribute(key, value)
 	}
 
 	// add May-Attributes
 	for key, value := range curObject.attrMay {
-		if value != "" {
-			addReq.Attribute(key, []string{value})
-		}
+		addReq.Attribute(key, value)
 	}
 
 	// Send out the request
@@ -206,16 +213,13 @@ func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
 
 	// add Must-Attributes
 	for key, value := range curObject.attrMust {
-		if value != "" {
-			changeReq.Replace(key, []string{value})
-		}
+		changeReq.Replace(key, value)
+
 	}
 
 	// add May-Attributes
 	for key, value := range curObject.attrMay {
-		if value != "" {
-			changeReq.Replace(key, []string{value})
-		}
+		changeReq.Replace(key, value)
 	}
 
 	// Send out the request
@@ -229,11 +233,15 @@ func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
 	return nil
 }
 
-func (curObject *ldapObject) ToJson(ldapConnection *ldap.Conn) string {
+func (curObject *ldapObject) ToMap() map[string]interface{} {
 
-	// connected ?
-	if ldapConnection == nil {
-		return "Not connected"
+	// build data
+	var curAttr = make(map[string]interface{})
+	for key, value := range curObject.attrMust {
+		curAttr[key] = value
+	}
+	for key, value := range curObject.attrMay {
+		curAttr[key] = value
 	}
 
 	// build mapping
@@ -241,14 +249,18 @@ func (curObject *ldapObject) ToJson(ldapConnection *ldap.Conn) string {
 	newJson["basedn"] = curObject.DnBase
 	newJson["objectClass"] = curObject.ObjectClass
 	newJson["dn"] = curObject.Dn
-	for key, value := range curObject.attrMust {
-		newJson[key] = value
-	}
-	for key, value := range curObject.attrMay {
-		newJson[key] = value
-	}
+	newJson["attrMain"] = curObject.attrMain
+	newJson["attr"] = curAttr
 
-	// convert to json
+	return newJson
+}
+
+func (curObject *ldapObject) ToJsonString() string {
+
+	// build mapping
+	var newJson = curObject.ToMap()
+
+	// convert to bytearray
 	groupObjectBytes, err := json.Marshal(&newJson)
 	if err != nil {
 		fmt.Println("error:", err)
@@ -258,6 +270,29 @@ func (curObject *ldapObject) ToJson(ldapConnection *ldap.Conn) string {
 	logging.Debug(fmt.Sprintf("%s", curObject.Dn), string(groupObjectBytes))
 
 	return string(groupObjectBytes)
+}
+
+func (curObject *ldapObject) ToTemplate() map[string]interface{} {
+
+	// we use the original object
+	var newJson = curObject.ToMap()
+
+	// Create array with must attributes
+	var mustAttrArray []string
+	for key := range curObject.attrMust {
+		mustAttrArray = append(mustAttrArray, key)
+	}
+
+	// Create array with may attributes
+	var mayAttrArray []string
+	for key := range curObject.attrMay {
+		mayAttrArray = append(mayAttrArray, key)
+	}
+
+	newJson["must"] = mustAttrArray
+	newJson["may"] = mayAttrArray
+
+	return newJson
 }
 
 func (curObject *ldapObject) IsClass(entry ldap.Entry, className string) bool {

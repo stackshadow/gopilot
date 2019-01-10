@@ -36,6 +36,11 @@ type ldapConnectionConfig struct {
 	OrgaName  string  `json:"organame,omitempty"`
 }
 
+type ldapChangeRequest struct {
+	Dn   string              `json:"dn"`
+	Attr map[string][]string `json:"attr"`
+}
+
 func ParseCmdLine() {
 	flag.StringVar(&ldapNamespace, "ldapNamespace", "dc=local", "The namespace where your organisation lives")
 	flag.StringVar(&ldapBaseOrgaName, "ldapOrga", "shinyneworga", "Name of your organisation")
@@ -50,6 +55,10 @@ func Init() {
 	organizationalUnitInit("", "", "")
 	groupOfNamesInit("", "", "")
 	inetOrgPersonInit("", "", "", "")
+
+	// we add the global attributes objectClass and dn
+	globalAttrAdd("objectClass")
+	globalAttrAdd("dn")
 
 	// register plugin on messagebus
 	plugin = msgbus.NewPlugin("LDAP")
@@ -161,7 +170,7 @@ func PopulateDirectory(namespace, orgaName string) {
 
 	ldapDummy := inetOrgPersonInit(ldapOrgaObj.Dn, "dummy", "dummy", "Default")
 	ldapDummy.Add(ldapCon)
-	ldapDummy.ToJson(ldapCon)
+	ldapDummy.ToJsonString()
 
 	ldapGroupsFolder := organizationalUnitInit(ldapOrgaObj.Dn, "groups", "The Folder for all groups")
 	ldapGroupsFolder.Add(ldapCon)
@@ -399,7 +408,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			oldBaseDn := ldapOrgaObj.DnBase
 
 			ldapOrgaObj.DnBase = "#"
-			message.Answer(&plugin, "objects", ldapOrgaObj.ToJson(ldapCon))
+			message.Answer(&plugin, "objects", ldapOrgaObj.ToJsonString())
 			message.Answer(&plugin, "objectsFinish", tempSearchDN)
 
 			ldapOrgaObj.DnBase = oldBaseDn
@@ -409,24 +418,18 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 		SearchAllFull(ldapCon, tempSearchDN, func(entry *ldap.Entry) {
 
-			var jsonObject = make(map[string]interface{})
+			// create an empty object
+			ldapObject := ldapObjectCreate([]string{""}, tempSearchDN, "", "")
 
 			// the core attributes
-			jsonObject["basedn"] = tempSearchDN
-			jsonObject["dn"] = entry.DN
+			ldapObject.ObjectClass = entry.GetAttributeValues("objectClass")
+			ldapObject.Dn = entry.DN
 
-			// set all atributes if entry to json
 			for _, attribute := range entry.Attributes {
-				jsonObject[attribute.Name] = attribute.Values
+				ldapObject.SetMustAttr(attribute.Name, attribute.Values)
 			}
 
-			groupObjectBytes, err := json.Marshal(jsonObject)
-			if err != nil {
-				fmt.Println("error:", err)
-				return
-			}
-
-			message.Answer(&plugin, "objects", string(groupObjectBytes))
+			message.Answer(&plugin, "objects", ldapObject.ToJsonString())
 		})
 		message.Answer(&plugin, "objectsFinish", tempSearchDN)
 
@@ -453,23 +456,18 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 		SearchOneFull(ldapCon, payload, func(entry *ldap.Entry) {
 
-			var jsonObject = make(map[string]interface{})
+			// create an empty object
+			ldapObject := ldapObjectCreate([]string{""}, "", "", "")
 
 			// the core attributes
-			jsonObject["dn"] = entry.DN
+			ldapObject.ObjectClass = entry.GetAttributeValues("objectClass")
+			ldapObject.Dn = entry.DN
 
-			// set all atributes if entry to json
 			for _, attribute := range entry.Attributes {
-				jsonObject[attribute.Name] = attribute.Values
+				ldapObject.SetMustAttr(attribute.Name, attribute.Values)
 			}
 
-			groupObjectBytes, err := json.Marshal(jsonObject)
-			if err != nil {
-				fmt.Println("error:", err)
-				return
-			}
-
-			message.Answer(&plugin, "object", string(groupObjectBytes))
+			message.Answer(&plugin, "object", ldapObject.ToJsonString())
 		})
 
 		return
@@ -478,7 +476,6 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	if command == "getTemplate" {
 
 		var object ldapObject
-
 		if payload == "organizationalUnit" {
 			object = organizationalUnitInit("", "", "")
 		}
@@ -489,7 +486,77 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			object = inetOrgPersonInit("", "", "", "")
 		}
 
-		message.Answer(&plugin, "template", object.ToJson(ldapCon))
+		// convert to json
+		var newJson = object.ToTemplate()
+		groupObjectBytes, err := json.Marshal(&newJson)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+		message.Answer(&plugin, "template", string(groupObjectBytes))
+	}
+
+	if command == "newObject" {
+
+		// parse json
+		var jsonNewConfig map[string]interface{}
+		err := json.Unmarshal([]byte(payload), &jsonNewConfig)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+	}
+
+	if command == "modifyObject" {
+
+		// parse json
+		var changeObjct ldapChangeRequest
+		err := json.Unmarshal([]byte(payload), &changeObjct)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// check if dn exist
+		if changeObjct.Dn == "" {
+			message.Answer(&plugin, "error", "DN is missing in object")
+			return
+		}
+
+		// create an empty object
+		ldapObject := ldapObjectCreate([]string{""}, "", "", "")
+
+		// the core attributes
+		ldapObject.Dn = changeObjct.Dn
+
+		// set all attr
+		for attrName, attrValues := range changeObjct.Attr {
+			ldapObject.SetMustAttr(attrName, attrValues)
+		}
+
+		// read config-object from config-file
+		jsonLdapConfig := GetLdapConfig()
+
+		// try to connect
+		err = BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// disconnect on return
+		defer disconnect()
+
+		// send change request
+		err = ldapObject.Change(ldapCon)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "modifyed", ldapObject.Dn)
+		return
 	}
 
 }

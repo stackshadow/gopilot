@@ -18,7 +18,7 @@ func organizationInit(basedn, name string) ldapObject {
 		name,
 	)
 
-	newObject.SetMustAttr("o", name)
+	newObject.SetMustAttr("o", []string{name})
 
 	return newObject
 }
