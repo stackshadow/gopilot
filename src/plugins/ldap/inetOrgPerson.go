@@ -11,21 +11,31 @@ MAY: 	description $ destinationIndicator $ facsimileTelephoneNumber $
         st $ street $ telephoneNumber $ teletexTerminalIdentifier $
         telexNumber $ title $ userPassword $ x121Address
 */
-func inetOrgPersonInit(basedn, uid, cn, sn string) ldapObject {
+func ldapClassInetOrgPersonRegister() {
 
-	newObject := ldapObjectCreate(
+	ldapClassRegister(
 		[]string{"inetOrgPerson"},
-		basedn,
 		"uid",
-		uid,
+		[]string{"uid", "cn", "sn"},
+		[]string{"mail", "displayName", "userPassword"},
 	)
 
-	newObject.SetMustAttr("cn", []string{cn})
-	newObject.SetMustAttr("sn", []string{sn})
+}
 
-	newObject.SetMayAttr("mail", []string{""})
-	newObject.SetMayAttr("displayName", []string{""})
-	newObject.SetMayAttr("userPassword", []string{""})
+func inetOrgPersonCreate(basedn, uid, cn, sn string) (error, *ldapObject) {
 
-	return newObject
+	err, newObject := ldapClassCreateLdapObject([]string{"inetOrgPerson"})
+	if err != nil {
+		return err, nil
+	}
+
+	// set the basedn
+	newObject.DnBase = basedn
+
+	// set the main attr
+	newObject.SetAttrValue("uid", []string{uid})
+	newObject.SetAttrValue("cn", []string{cn})
+	newObject.SetAttrValue("sn", []string{sn})
+
+	return nil, newObject
 }

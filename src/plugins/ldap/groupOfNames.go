@@ -5,16 +5,30 @@ class: inetOrgPerson
 MUST: cn
 MAX: member businessCategory description o ou owner seeAlso
 */
-func groupOfNamesInit(basedn, cn, firstmember string) ldapObject {
+func ldapClassgroupOfNamesRegister() {
 
-	newObject := ldapObjectCreate(
+	ldapClassRegister(
 		[]string{"groupOfNames"},
-		basedn,
 		"cn",
-		cn,
+		[]string{"cn", "member"},
+		[]string{},
 	)
 
-	newObject.SetMustAttr("member", []string{firstmember})
+}
 
-	return newObject
+func groupOfNamesCreate(basedn, cn, firstmember string) (error, *ldapObject) {
+
+	err, newObject := ldapClassCreateLdapObject([]string{"groupOfNames"})
+	if err != nil {
+		return err, nil
+	}
+
+	// set the basedn
+	newObject.DnBase = basedn
+
+	// set the main attr
+	newObject.SetAttrValue("cn", []string{cn})
+	newObject.SetAttrValue("member", []string{firstmember})
+
+	return nil, newObject
 }

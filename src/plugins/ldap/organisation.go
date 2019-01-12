@@ -9,16 +9,30 @@ $ teletexTerminalIdentifier $ telephoneNumber $ internationaliSDNNumber $
 facsimileTelephoneNumber $ street $ postOfficeBox $ postalCode $ postalAddress
 $ physicalDeliveryOfficeName $ st $ l $ description
 */
-func organizationInit(basedn, name string) ldapObject {
+func ldapClassOrganizationRegister() {
 
-	newObject := ldapObjectCreate(
+	ldapClassRegister(
 		[]string{"top", "dcObject", "organization"},
-		basedn,
 		"dc",
-		name,
+		[]string{"dc", "o"},
+		[]string{},
 	)
 
-	newObject.SetMustAttr("o", []string{name})
+}
 
-	return newObject
+func organizationCreate(basedn, name string) (error, *ldapObject) {
+
+	err, newObject := ldapClassCreateLdapObject([]string{"top", "dcObject", "organization"})
+	if err != nil {
+		return err, nil
+	}
+
+	// set the basedn
+	newObject.DnBase = basedn
+
+	// set the main attr
+	newObject.SetAttrValue("dc", []string{name})
+	newObject.SetAttrValue("o", []string{name})
+
+	return nil, newObject
 }

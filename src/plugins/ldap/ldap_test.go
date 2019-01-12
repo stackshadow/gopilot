@@ -37,15 +37,24 @@ import "testing"
 import "core/clog"
 import "core/msgbus"
 
-var TestHostName = "localhost"
-var TestBindDN = ""
-var TestPassword = ""
+var LdapTestHostName = "localhost"
+var LdapTestBindDN = "cn=admin,dc=integration,dc=test"
+var LdapTestPassword = "secret"
 
 func TestConnectDisconnect(t *testing.T) {
 	clog.Init()
 	clog.EnableDebug()
 	msgbus.MsgBusInit()
 	msgbus.PluginsInit()
+
+	// we init the global class storage
+	ldapClassInit()
+
+	// we create for every type a class to create the objectClass and attributes search strings
+	ldapClassOrganizationRegister()
+	ldapClassOrganizationalUnitRegister()
+	ldapClassInetOrgPersonRegister()
+	ldapClassgroupOfNamesRegister()
 
 	err := BindConnect("localhost", 389, "cn=admin,dc=integration,dc=test", "secret")
 	if err != nil {
@@ -58,15 +67,19 @@ func TestConnectDisconnect(t *testing.T) {
 
 func TestCreateOUAndCheckIfExist(t *testing.T) {
 
-	err := BindConnect("localhost", 389, "cn=admin,dc=integration,dc=test", "secret")
+	// connect
+	err := BindConnect(LdapTestHostName, 389, LdapTestBindDN, LdapTestPassword)
 	if err != nil {
 		t.Error(err.Error())
 		return
 	}
 
 	// add an orga
-	orga := organizationInit("dc=test", "integration")
-	orga.Add(ldapCon)
+	err, orga := organizationCreate("dc=test", "integration")
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	err = orga.Add(ldapCon)
 	if err != nil {
 		t.Error(err)
@@ -74,9 +87,12 @@ func TestCreateOUAndCheckIfExist(t *testing.T) {
 	}
 
 	// add an orga object
-	orgaUnit := organizationalUnitInit("dc=integration,dc=test", "groups", "The folder for all groups")
-	orgaUnit.Add(ldapCon)
-	err = orga.Add(ldapCon)
+	err, orgaUnit := organizationalUnitCreate("dc=integration,dc=test", "groups", "The folder for all groups")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = orgaUnit.Add(ldapCon)
 	if err != nil {
 		t.Error(err)
 		return
@@ -89,5 +105,30 @@ func TestCreateOUAndCheckIfExist(t *testing.T) {
 		return
 	}
 
+	// read and compare
+	/* err, curUnit := */
+	// err, existingObject := GetLdapObject(ldapCon, orgaUnit.Dn)
+
 	disconnect()
+}
+
+func TestCreateUserAndModifyIt(t *testing.T) {
+
+	// connect
+	err := BindConnect(LdapTestHostName, 389, LdapTestBindDN, LdapTestPassword)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	// add an user
+	_, user := inetOrgPersonCreate("dc=integration,dc=test", "testuser", "Test User", "Mr")
+	user.Add(ldapCon)
+
+	// we change an attribute
+	user.SetAttrValue("mail", []string{"usermail"})
+	user.Change(ldapCon)
+
+	disconnect()
+
 }
