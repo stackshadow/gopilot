@@ -28,7 +28,7 @@ func TestCreateAndFindClasses(t *testing.T) {
 	)
 
 	// there should be 9 elements
-	if len(ldapAllAttrs) != 9 {
+	if len(ldapAllAttrs) != 12 {
 		t.FailNow()
 		return
 	}

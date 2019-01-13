@@ -105,6 +105,26 @@ func (curObject *ldapObject) SetAttrValue(attributeName string, values []string)
 	return errors.New("Attribute don't exist in Object")
 }
 
+func (curObject *ldapObject) GetAttrValue(attributeName string) (error, []string) {
+
+	// add Must-Attributes
+	for attrName := range curObject.attrMust {
+		if attrName == attributeName {
+			return nil, curObject.attrMust[attrName]
+		}
+	}
+
+	// add May-Attributes
+	for attrName := range curObject.attrMay {
+		if attrName == attributeName {
+			return nil, curObject.attrMay[attrName]
+		}
+	}
+
+	err := errors.New("Object don't know the '" + attributeName + "' attribute.")
+	return err, []string{}
+}
+
 /*
 @detail
 This function don't log
@@ -471,6 +491,12 @@ func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject
 
 		// set all readed attributes
 		for _, attribute := range entry.Attributes {
+
+			// we dont set objectClass
+			if attribute.Name == "objectClass" {
+				continue
+			}
+
 			ldapObject.SetAttrValue(attribute.Name, attribute.Values)
 		}
 
