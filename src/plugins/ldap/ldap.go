@@ -10,7 +10,7 @@ import (
 	"flag"
 	"fmt"
 
-	"gopkg.in/ldap.v2"
+	"gopkg.in/ldap.v3"
 )
 
 // private vars
@@ -37,7 +37,14 @@ type ldapConnectionConfig struct {
 }
 
 type ldapChangeRequest struct {
+	DnBase      string              `json:"basedn"`
+	ObjectClass []string            `json:"objectClass"`
 	Dn          string              `json:"dn"`
+	AttrData    map[string][]string `json:"attrData"`
+}
+
+type ldapCreateRequest struct {
+	DnBase      string              `json:"basedn"`
 	ObjectClass []string            `json:"objectClass"`
 	AttrData    map[string][]string `json:"attrData"`
 }
@@ -224,7 +231,7 @@ func AddUserToGroup(groupdn, userdn string) error {
 	}
 
 	// Add a description, and replace the mail attributes
-	modify := ldap.NewModifyRequest(userdn)
+	modify := ldap.NewModifyRequest(userdn, nil)
 	modify.Add("memberOf", []string{groupdn})
 
 	err = ldapCon.Modify(modify)
@@ -445,34 +452,83 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getTemplate" {
 
-		/*
-			var object ldapObject
-			if payload == "organizationalUnit" {
-				object = organizationalUnitInit("", "", "")
-			}
-			if payload == "groupOfNames" {
-				object = groupOfNamesInit("", "", "")
-			}
-			if payload == "inetOrgPerson" {
-				object = inetOrgPersonInit("", "", "", "")
-			}
-
-			// convert to json
-			var newJson = object.ToTemplateString()
-			message.Answer(&plugin, "template", newJson)
-		*/
-	}
-
-	if command == "newObject" {
-
-		// parse json
-		var jsonNewConfig map[string]interface{}
-		err := json.Unmarshal([]byte(payload), &jsonNewConfig)
+		var ldapClass []string
+		err := json.Unmarshal([]byte(payload), &ldapClass)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
 
+		// we create an ldapObject from class to get an template
+		err, ldapTemplateObject := ldapClassCreateLdapObject(ldapClass)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "template", ldapTemplateObject.ToJsonString())
+	}
+
+	if command == "createObject" {
+
+		// parse json
+		var newObject ldapChangeRequest
+		err := json.Unmarshal([]byte(payload), &newObject)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// check if dn exist
+		if newObject.DnBase == "" {
+			message.Answer(&plugin, "error", "DnBase is missing in object")
+			return
+		}
+		// check if objectClass exist
+		if newObject.ObjectClass == nil {
+			message.Answer(&plugin, "error", "objectClass is missing in object")
+			return
+		}
+
+		// create an empty object
+		err, ldapObjectToCreate := ldapClassCreateLdapObject(newObject.ObjectClass)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// set base-dn
+		ldapObjectToCreate.DnBase = newObject.DnBase
+
+		// set all attributes that should be changed
+		for attrName, attrValue := range newObject.AttrData {
+			err = ldapObjectToCreate.SetAttrValue(attrName, attrValue)
+			if err != nil {
+				message.Answer(&plugin, "error", err.Error())
+				return
+			}
+		}
+
+		// read config-object from config-file
+		jsonLdapConfig := GetLdapConfig()
+		// try to connect
+		err = BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		// disconnect on return
+		defer disconnect()
+
+		// send change request
+		err = ldapObjectToCreate.Add(ldapCon)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "created", ldapObjectToCreate.Dn)
+		return
 	}
 
 	if command == "modifyObject" {
@@ -511,6 +567,8 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 				return
 			}
 		}
+
+		// compare if dn is changed
 
 		// set DN
 		ldapObjectToChange.Dn = changeObjct.Dn
