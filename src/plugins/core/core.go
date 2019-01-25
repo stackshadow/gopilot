@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
 var logging clog.Logger
@@ -68,6 +69,13 @@ const NodeTypeIncoming int = 3  // incoming connection from another node
 type nodesIterateFct func(map[string]interface{}, string, int, string, int) // name, type, host, port
 
 func ConfigRead() {
+
+	// current path
+	ex, err := os.Executable()
+	if err == nil {
+		exPath := filepath.Dir(ex)
+		logging.Debug("CONFIG", "Our current path is '"+exPath+"'")
+	}
 
 	// Open our jsonFile
 	jsonFile, err := os.Open(ConfigPath + "/core.json")
