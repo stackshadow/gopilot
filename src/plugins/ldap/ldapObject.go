@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/ldap.v3"
+	"strings"
 )
 
 type ldapObject struct {
@@ -301,10 +302,21 @@ func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
 
 func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) error {
 
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
 	var mainAttrValue []string
 	var ok bool
 	if mainAttrValue, ok = curObject.AttrMust[curObject.AttrMain]; !ok {
 		err := errors.New("'" + curObject.AttrMain + "' Not found in .AttrMust")
+		return err
+	}
+
+	// check if there are values
+	if len(mainAttrValue) == 0 {
+		err := errors.New("No Values for AttrMain")
 		return err
 	}
 
@@ -314,6 +326,9 @@ func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) err
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
 	}
+
+	// set the new DN
+	curObject.Dn = curObject.AttrMain + "=" + mainAttrValue[0] + "," + curObject.DnBase
 
 	return nil
 }
@@ -342,11 +357,11 @@ func (curObject *ldapObject) ToJsonString() string {
 	return string(groupObjectBytes)
 }
 
-func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) {
+func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
 	if ldapConnection == nil {
-		return
+		return errors.New("Not connected")
 	}
 
 	var classFilter string = "(|"
@@ -368,7 +383,7 @@ func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap
 	sr, err := ldapConnection.Search(searchRequest)
 	if err != nil {
 		logging.Error("SearchAll", err.Error())
-		return
+		return err
 	}
 	//sr.PrettyPrint(2)
 
@@ -379,13 +394,14 @@ func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap
 		//entry.PrettyPrint(2)
 	}
 
+	return nil
 }
 
-func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap.Entry)) {
+func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
 	if ldapConnection == nil {
-		return
+		return errors.New("Not connected")
 	}
 
 	var classFilter string = "(|"
@@ -407,7 +423,7 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 	sr, err := ldapConnection.Search(searchRequest)
 	if err != nil {
 		logging.Error("SearchAll", err.Error())
-		return
+		return err
 	}
 	//sr.PrettyPrint(2)
 
@@ -418,6 +434,7 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 		//entry.PrettyPrint(2)
 	}
 
+	return nil
 }
 
 func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject) {
@@ -430,7 +447,7 @@ func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject
 	var retError error
 	var retLdapObject *ldapObject
 
-	SearchOneFull(ldapConnection, fullDn, func(entry *ldap.Entry) {
+	err := SearchOneFull(ldapConnection, fullDn, func(entry *ldap.Entry) {
 
 		objectClass := entry.GetAttributeValues("objectClass")
 		dn := entry.DN
@@ -457,10 +474,23 @@ func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject
 		// set the dn ( because it get first manipulated from SetAttrValue)
 		ldapObject.Dn = dn
 
+		// we need to grab the base dn from the dn
+		splitDN := strings.SplitN(dn, ",", 2)
+		if len(splitDN) <= 1 {
+			retError = errors.New("Could not read basedn from dn")
+			retLdapObject = ldapObject
+			return
+		}
+		ldapObject.DnBase = splitDN[1]
+
 		retError = nil
 		retLdapObject = ldapObject
 		return
 	})
+
+	if err != nil {
+		retError = err
+	}
 
 	return retError, retLdapObject
 }
