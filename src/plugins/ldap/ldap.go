@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
 	"gopkg.in/ldap.v3"
 )
@@ -28,18 +29,17 @@ var ldapGroupSuffixDn string
 var ldapDummyUserDn string
 
 type ldapConnectionConfig struct {
-	Host      string  `json:"host,omitempty"`
-	Port      float64 `json:"port,omitempty"`
-	BindDN    string  `json:"binddn,omitempty"`
-	Password  string  `json:"password,omitempty"`
-	Namespace string  `json:"namespace,omitempty"`
-	OrgaName  string  `json:"organame,omitempty"`
+	Host      string  `json:"host"`
+	Port      float64 `json:"port"`
+	BindDN    string  `json:"binddn"`
+	Password  string  `json:"password"`
+	Namespace string  `json:"namespace"`
+	OrgaName  string  `json:"organame"`
 }
 
 type ldapChangeRequest struct {
-	DnBase      string              `json:"basedn"`
-	ObjectClass []string            `json:"objectClass"`
 	Dn          string              `json:"dn"`
+	ObjectClass []string            `json:"objectClass"`
 	AttrData    map[string][]string `json:"attrData"`
 }
 
@@ -120,6 +120,29 @@ func GetLdapConfig() ldapConnectionConfig {
 	}
 
 	return jsonLdapConfig
+}
+
+func SetLdapConfig(newConfig ldapConnectionConfig) error {
+
+	// to json
+	groupObjectBytes, err := json.Marshal(newConfig)
+	if err != nil {
+		fmt.Println("LDAP:SetLdapConfig", err)
+		return err
+	}
+
+	// from json
+	var jsonObject map[string]interface{}
+	err = json.Unmarshal(groupObjectBytes, &jsonObject)
+	if err != nil {
+		logging.Error("LDAP:SetLdapConfig", err.Error())
+		return err
+	}
+
+	// save it
+	core.SetJsonObject("ldap", jsonObject)
+	core.ConfigSave()
+	return nil
 }
 
 func BindConnect(hostname string, port int, binddn, password string) error {
@@ -298,7 +321,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getConfig" {
 
-		jsonLdapConfig := GetLdapConfig()
+		var jsonLdapConfig ldapConnectionConfig = GetLdapConfig()
+
+		// we protect our password !
+		jsonLdapConfig.Password = ""
 
 		groupObjectBytes, err := json.Marshal(jsonLdapConfig)
 		if err != nil {
@@ -312,15 +338,38 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "saveConfig" {
 
-		var jsonNewConfig map[string]interface{}
-		err := json.Unmarshal([]byte(payload), &jsonNewConfig)
+		// get the json
+		var configValues ldapConnectionConfig
+		err := json.Unmarshal([]byte(payload), &configValues)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
 
-		core.SetJsonObject("ldap", jsonNewConfig)
-		core.ConfigSave()
+		// get the original config
+		var jsonLdapConfig ldapConnectionConfig = GetLdapConfig()
+
+		// patch it
+		if configValues.Host != "" {
+			jsonLdapConfig.Host = configValues.Host
+		}
+		if configValues.Port != 0 {
+			jsonLdapConfig.Port = configValues.Port
+		}
+		if configValues.BindDN != "" {
+			jsonLdapConfig.BindDN = configValues.BindDN
+		}
+		if configValues.Password != "" {
+			jsonLdapConfig.Password = configValues.Password
+		}
+		if configValues.Namespace != "" {
+			jsonLdapConfig.Namespace = configValues.Namespace
+		}
+		if configValues.OrgaName != "" {
+			jsonLdapConfig.OrgaName = configValues.OrgaName
+		}
+
+		SetLdapConfig(jsonLdapConfig)
 		message.Answer(&plugin, "configSaved", "")
 		return
 	}
@@ -472,7 +521,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	if command == "createObject" {
 
 		// parse json
-		var newObject ldapChangeRequest
+		var newObject ldapCreateRequest
 		err := json.Unmarshal([]byte(payload), &newObject)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
@@ -534,44 +583,47 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	if command == "modifyObject" {
 
 		// parse json
-		var changeObjct ldapChangeRequest
-		err := json.Unmarshal([]byte(payload), &changeObjct)
+		var changeRequestObject ldapChangeRequest
+		err := json.Unmarshal([]byte(payload), &changeRequestObject)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
 
 		// check if dn exist
-		if changeObjct.Dn == "" {
+		if changeRequestObject.Dn == "" {
 			message.Answer(&plugin, "error", "DN is missing in object")
 			return
 		}
 		// check if objectClass exist
-		if changeObjct.ObjectClass == nil {
+		if changeRequestObject.ObjectClass == nil {
 			message.Answer(&plugin, "error", "objectClass is missing in object")
 			return
 		}
 
 		// create an empty object
-		err, ldapObjectToChange := ldapClassCreateLdapObject(changeObjct.ObjectClass)
+		err, ldapObjectToChange := ldapClassCreateLdapObject(changeRequestObject.ObjectClass)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
 
+		// we need to grab the base dn from the dn
+		splitDN := strings.SplitN(changeRequestObject.Dn, ",", 2)
+		if len(splitDN) <= 1 {
+			message.Answer(&plugin, "error", "Could not read basedn from dn")
+			return
+		}
+		ldapObjectToChange.DnBase = splitDN[1]
+
 		// set all attributes that should be changed
-		for attrName, attrValue := range changeObjct.AttrData {
+		for attrName, attrValue := range changeRequestObject.AttrData {
 			err = ldapObjectToChange.SetAttrValue(attrName, attrValue)
 			if err != nil {
 				message.Answer(&plugin, "error", err.Error())
 				return
 			}
 		}
-
-		// compare if dn is changed
-
-		// set DN
-		ldapObjectToChange.Dn = changeObjct.Dn
 
 		// read config-object from config-file
 		jsonLdapConfig := GetLdapConfig()
@@ -584,6 +636,16 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		// disconnect on return
 		defer disconnect()
 
+		// if DN was not changed by mainAttr, we use the dn from the change request
+		if ldapObjectToChange.Dn == "" {
+			ldapObjectToChange.Dn = changeRequestObject.Dn
+		}
+
+		// compare if dn is changed
+		if ldapObjectToChange.Dn != changeRequestObject.Dn {
+			ldapObjectToChange.Rename(ldapCon, changeRequestObject.Dn)
+		}
+
 		// send change request
 		err = ldapObjectToChange.Change(ldapCon)
 		if err != nil {
@@ -595,4 +657,31 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		return
 	}
 
+	if command == "deleteObject" {
+
+		var classes []string
+		ldapObject := ldapObjectCreate(classes, "", "")
+		ldapObject.Dn = payload
+
+		// read config-object from config-file
+		jsonLdapConfig := GetLdapConfig()
+		// try to connect
+		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		// disconnect on return
+		defer disconnect()
+
+		// remove
+		err = ldapObject.Remove(ldapCon)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "deleted", ldapObject.Dn)
+		return
+	}
 }
