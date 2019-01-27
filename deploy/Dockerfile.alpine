@@ -1,0 +1,56 @@
+############################
+# Builder
+############################
+#FROM golang:alpine AS builder
+FROM golang:1.10-alpine AS builder
+
+# install ca-certificates
+RUN apk update && \
+apk add --no-cache git ca-certificates && update-ca-certificates
+
+# Create gorunner
+# the default way
+# RUN useradd -M gorunner && \
+# usermod -L gorunner &&
+
+# The busybox-way
+RUN adduser -D -H gorunner 
+
+COPY ./src $GOPATH/src/
+WORKDIR $GOPATH
+
+# Using go get.
+RUN go get -d -v ./src
+
+# Build the binary.
+RUN mkdir -p /app && \
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+go build -ldflags="-w -s" -o /app/gopilot ./src
+
+############################
+# Runtime image
+############################
+FROM alpine:latest
+
+# install openssl that gopilot can create a certificate for you
+RUN apk add --no-cache openssl
+
+# we need certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# We created a user inside the builder, copy it
+COPY --from=builder /etc/passwd /etc/passwd
+
+# Copy our static executable.
+COPY --from=builder /app/gopilot /app/gopilot
+
+# permission
+RUN touch /app/core.json && \
+chmod -R a+rwX /app && \
+chmod a+rwx /app/gopilot && \
+chown -R 1000:0 /app
+
+# Use an unprivileged user.
+USER 1000
+WORKDIR /app
+ENTRYPOINT ["/app/gopilot"]
