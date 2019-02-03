@@ -22,7 +22,7 @@ var ldapCon *ldap.Conn = nil
 var ldapConnected bool
 var ldapNamespace string
 var ldapBaseOrgaName string
-var ldapOrgaObj *ldapObject
+var ldapBaseDn string
 
 var ldapUserSuffixDn string
 var ldapGroupSuffixDn string
@@ -47,6 +47,11 @@ type ldapCreateRequest struct {
 	DnBase      string              `json:"basedn"`
 	ObjectClass []string            `json:"objectClass"`
 	AttrData    map[string][]string `json:"attrData"`
+}
+
+type ldapChangeMemberRequest struct {
+	GroupDn string `json:"groupdn"`
+	UserDn  string `json:"userdn"`
 }
 
 func ParseCmdLine() {
@@ -178,6 +183,29 @@ func BindConnect(hostname string, port int, binddn, password string) error {
 	return nil
 }
 
+func Connect() error {
+
+	// read config-object from config-file
+	jsonLdapConfig := GetLdapConfig()
+
+	// try to connect
+	err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+	if err != nil {
+		return err
+	}
+
+	// maybe the orga changed
+	_, ldapOrgaObj := organizationCreate(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
+	if ldapOrgaObj != nil {
+		ldapOrgaObj.Add(ldapCon)
+	}
+
+	// remember the baseDN of our orga ( the base of everything )
+	ldapBaseDn = ldapOrgaObj.Dn
+
+	return nil
+}
+
 func disconnect() {
 	if ldapCon != nil {
 		ldapCon.Close()
@@ -186,84 +214,6 @@ func disconnect() {
 	ldapConnected = false
 
 	logging.Info("disconnect", "Disconnected")
-}
-
-func PopulateDirectory(namespace, orgaName string) {
-	// If we are not connected, we dont do anything
-	if ldapCon == nil {
-		return
-	}
-
-	// maybe the orga changed
-	_, ldapOrgaObj = organizationCreate(namespace, orgaName)
-	if ldapOrgaObj != nil {
-		ldapOrgaObj.Add(ldapCon)
-	}
-
-	_, ldapDummy := inetOrgPersonCreate(ldapOrgaObj.Dn, "dummy", "dummy", "Default")
-	ldapDummy.Add(ldapCon)
-	ldapDummy.ToJsonString()
-
-	_, ldapGroupsFolder := organizationalUnitCreate(ldapOrgaObj.Dn, "groups", "The Folder for all groups")
-	ldapGroupsFolder.Add(ldapCon)
-
-	_, ldapUsersFolder := organizationalUnitCreate(ldapOrgaObj.Dn, "users", "The Folder for all users")
-	ldapUsersFolder.Add(ldapCon)
-
-	_, ldapNextcloudGroup := groupOfNamesCreate(ldapGroupsFolder.Dn, "nextcloud", ldapDummy.Dn)
-	ldapNextcloudGroup.Add(ldapCon)
-
-	_, ldapAdminUser := inetOrgPersonCreate(ldapUsersFolder.Dn, "admin", "admin", "The")
-	ldapAdminUser.Add(ldapCon)
-}
-
-func AddUserToGroup(groupdn, userdn string) error {
-
-	// search for group
-	searchRequest := ldap.NewSearchRequest(
-		groupdn,
-		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		"(&(objectClass=groupOfNames))",
-		[]string{"dn"},
-		nil,
-	)
-
-	sr, err := ldapCon.Search(searchRequest)
-	if err == nil {
-		if len(sr.Entries) == 0 {
-			logging.Error("AddUserToGroup - Check", "Group dont exist, can not add user to group")
-			return errors.New("Group dont exist, can not add user to group")
-		}
-	}
-
-	// search for user
-	searchRequest = ldap.NewSearchRequest(
-		userdn,
-		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		"(&(objectClass=inetOrgPerson))",
-		[]string{"dn"},
-		nil,
-	)
-
-	sr, err = ldapCon.Search(searchRequest)
-	if err == nil {
-		if len(sr.Entries) == 0 {
-			logging.Error("AddUserToGroup - Check", "User dont exist, can not add user to group")
-			return errors.New("User dont exist, can not add user to group")
-		}
-	}
-
-	// Add a description, and replace the mail attributes
-	modify := ldap.NewModifyRequest(userdn, nil)
-	modify.Add("memberOf", []string{groupdn})
-
-	err = ldapCon.Modify(modify)
-	if err != nil {
-		logging.Error("AddUserToGroup", err.Error())
-		return err
-	}
-
-	return nil
 }
 
 type seachResultFct func(string /*basedn*/, string /*dn*/, string /*type*/, string /*displayName*/)
@@ -376,18 +326,13 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "connect" {
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
-
 		// try to connect
-		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err := Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-
-		// Populate directory
-		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
+		defer disconnect()
 
 		message.Answer(&plugin, "connected", "")
 		return
@@ -405,41 +350,36 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		} else {
 			message.Answer(&plugin, "disconnected", "No config")
 		}
+		return
 	}
 
 	if command == "getObjects" {
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
-
 		// try to connect
-		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err := Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-
-		// Populate directory
-		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
-
-		// disconnect on return
 		defer disconnect()
 
 		// we want the base-dn
 		if payload == "" {
 
-			oldBaseDn := ldapOrgaObj.DnBase
+			err, ldapOrgaObj := GetLdapObject(ldapCon, ldapBaseDn)
+			if err != nil {
+				message.Answer(&plugin, "error", err.Error())
+				return
+			}
 
 			ldapOrgaObj.DnBase = "#"
 			message.Answer(&plugin, "objects", ldapOrgaObj.ToJsonString())
 			message.Answer(&plugin, "objectsFinish", payload)
 
-			ldapOrgaObj.DnBase = oldBaseDn
-
 			return
 		}
 
-		SearchAllFull(ldapCon, payload, func(entry *ldap.Entry) {
+		SearchOneLevel(ldapCon, payload, func(entry *ldap.Entry) {
 
 			// get the object of the corresponding class
 			objectClass := entry.GetAttributeValues("objectClass")
@@ -472,20 +412,12 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getObject" {
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
-
 		// try to connect
-		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err := Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-
-		// Populate directory
-		PopulateDirectory(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
-
-		// disconnect on return
 		defer disconnect()
 
 		// get ldapObject from fulldn
@@ -516,6 +448,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		}
 
 		message.Answer(&plugin, "template", ldapTemplateObject.ToJsonString())
+		return
 	}
 
 	if command == "createObject" {
@@ -558,15 +491,12 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			}
 		}
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
 		// try to connect
-		err = BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err = Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		// disconnect on return
 		defer disconnect()
 
 		// send change request
@@ -576,7 +506,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		message.Answer(&plugin, "created", ldapObjectToCreate.Dn)
+		message.Answer(&plugin, "createObjectOk", ldapObjectToCreate.Dn)
 		return
 	}
 
@@ -625,15 +555,12 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			}
 		}
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
 		// try to connect
-		err = BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err = Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		// disconnect on return
 		defer disconnect()
 
 		// if DN was not changed by mainAttr, we use the dn from the change request
@@ -653,7 +580,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		message.Answer(&plugin, "modifyed", ldapObjectToChange.Dn)
+		message.Answer(&plugin, "modifyObjectOk", ldapObjectToChange.Dn)
 		return
 	}
 
@@ -663,15 +590,12 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		ldapObject := ldapObjectCreate(classes, "", "")
 		ldapObject.Dn = payload
 
-		// read config-object from config-file
-		jsonLdapConfig := GetLdapConfig()
 		// try to connect
-		err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+		err := Connect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		// disconnect on return
 		defer disconnect()
 
 		// remove
@@ -681,7 +605,161 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		message.Answer(&plugin, "deleted", ldapObject.Dn)
+		message.Answer(&plugin, "deleteObjectOk", ldapObject.Dn)
 		return
 	}
+
+	if command == "getGroups" {
+
+		// try to connect
+		err := Connect()
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		defer disconnect()
+
+		err, newObject := ldapClassCreateLdapObject([]string{"groupOfNames"})
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		newObject.GetClassElements(ldapCon, ldapBaseDn, func(entry *ldap.Entry) {
+
+			// get the object of the corresponding class
+			err, ldapObject := ldapClassCreateLdapObject([]string{"groupOfNames"})
+			if err != nil {
+				message.Answer(&plugin, "error", err.Error())
+				return
+			}
+
+			// set the dn
+			ldapObject.Dn = entry.DN
+
+			message.Answer(&plugin, "groups", ldapObject.ToJsonString())
+		})
+
+		return
+	}
+
+	if command == "getUsers" {
+
+		// try to connect
+		err := Connect()
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		defer disconnect()
+
+		err, newObject := ldapClassCreateLdapObject([]string{"inetOrgPerson"})
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		newObject.GetClassElements(ldapCon, ldapBaseDn, func(entry *ldap.Entry) {
+
+			// get the object of the corresponding class
+			err, ldapObject := ldapClassCreateLdapObject([]string{"inetOrgPerson"})
+			if err != nil {
+				message.Answer(&plugin, "error", err.Error())
+				return
+			}
+
+			// set the dn
+			ldapObject.Dn = entry.DN
+
+			message.Answer(&plugin, "user", ldapObject.ToJsonString())
+		})
+
+		return
+	}
+
+	if command == "addUserToGroup" {
+
+		// parse json
+		var changeMemberRequest ldapChangeMemberRequest
+		err := json.Unmarshal([]byte(payload), &changeMemberRequest)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// create ldapObject
+		var classes []string
+		ldapObject := ldapObjectCreate(classes, "", "")
+		ldapObject.Dn = changeMemberRequest.GroupDn
+
+		// try to connect
+		err = Connect()
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		defer disconnect()
+
+		// add attribute 'member'
+		err = ldapObject.AddAttribute(ldapCon, "member", []string{changeMemberRequest.UserDn})
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "addUserToGroupOk", ldapObject.Dn)
+		return
+	}
+
+	if command == "removeUserFromGroup" {
+
+		// parse json
+		var changeMemberRequest ldapChangeMemberRequest
+		err := json.Unmarshal([]byte(payload), &changeMemberRequest)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// try to connect
+		err = Connect()
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+		defer disconnect()
+
+		// ldapObject: group
+		err, ldapObject := GetLdapObject(ldapCon, changeMemberRequest.GroupDn)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// get member array
+		err, groupArray := ldapObject.GetAttrValue("member")
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		// remove member from member-array
+		for index, member := range groupArray {
+			if member == changeMemberRequest.UserDn {
+				groupArray = append(groupArray[:index], groupArray[index+1:]...)
+			}
+		}
+
+		// add attribute 'member'
+		err = ldapObject.ReplaceAttribute(ldapCon, "member", groupArray)
+		if err != nil {
+			message.Answer(&plugin, "error", err.Error())
+			return
+		}
+
+		message.Answer(&plugin, "removeUserFromGroupOk", ldapObject.Dn)
+		return
+	}
+
+	message.Answer(&plugin, "error", "We dont understand your request...")
 }

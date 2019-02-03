@@ -333,6 +333,72 @@ func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) err
 	return nil
 }
 
+func (curObject *ldapObject) AddAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
+	// create change-request
+	changeReq := ldap.NewModifyRequest(curObject.Dn, nil)
+	changeReq.Add(attrName, attrValues)
+
+	// Send out the request
+	err := ldapConnection.Modify(changeReq)
+	if err != nil {
+		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
+		return err
+	}
+
+	logging.Info(fmt.Sprintf("%s", curObject.Dn), "Changed")
+	return nil
+}
+
+func (curObject *ldapObject) ReplaceAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
+	// create change-request
+	changeReq := ldap.NewModifyRequest(curObject.Dn, nil)
+	changeReq.Replace(attrName, attrValues)
+
+	// Send out the request
+	err := ldapConnection.Modify(changeReq)
+	if err != nil {
+		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
+		return err
+	}
+
+	logging.Info(fmt.Sprintf("%s", curObject.Dn), "Changed")
+	return nil
+}
+
+func (curObject *ldapObject) RemoveAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
+	// create change-request
+	changeReq := ldap.NewModifyRequest(curObject.Dn, nil)
+	changeReq.Delete(attrName, attrValues)
+
+	// Send out the request
+	err := ldapConnection.Modify(changeReq)
+	if err != nil {
+		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
+		return err
+	}
+
+	logging.Info(fmt.Sprintf("%s", curObject.Dn), "Changed")
+	return nil
+}
+
 func (curObject *ldapObject) IsClass(entry ldap.Entry, className string) bool {
 	classes := entry.GetAttributeValues("objectClass")
 
@@ -357,7 +423,54 @@ func (curObject *ldapObject) ToJsonString() string {
 	return string(groupObjectBytes)
 }
 
-func SearchAllFull(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
+func (curObject *ldapObject) GetClassElements(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
+
+	// connected ?
+	if ldapConnection == nil {
+		return errors.New("Not connected")
+	}
+
+	var classFilter string = "(|"
+	for index := range curObject.ObjectClass {
+		classFilter += "(objectClass="
+		classFilter += curObject.ObjectClass[index]
+		classFilter += ")"
+	}
+	classFilter += ")"
+
+	// attr list
+	var attrs []string
+	for key, _ := range curObject.AttrMust {
+		attrs = append(attrs, key)
+	}
+	for key, _ := range curObject.AttrMay {
+		attrs = append(attrs, key)
+	}
+
+	searchRequest := ldap.NewSearchRequest(
+		basedn,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		classFilter,
+		attrs,
+		nil,
+	)
+
+	sr, err := ldapConnection.Search(searchRequest)
+	if err != nil {
+		logging.Error("SearchAll", err.Error())
+		return err
+	}
+
+	for _, entry := range sr.Entries {
+		if callback != nil {
+			callback(entry)
+		}
+	}
+
+	return nil
+}
+
+func SearchOneLevel(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
 	if ldapConnection == nil {
@@ -437,6 +550,10 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 	return nil
 }
 
+/**
+Get an ldapObject from your ldap-server
+ - Will automatic calculate the base DN
+**/
 func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject) {
 
 	// connected ?

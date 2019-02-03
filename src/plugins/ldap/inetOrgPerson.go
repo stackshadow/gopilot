@@ -17,7 +17,7 @@ func ldapClassInetOrgPersonRegister() {
 		[]string{"inetOrgPerson"},
 		"uid",
 		[]string{"uid", "cn", "sn"},
-		[]string{"mail", "displayName", "userPassword"},
+		[]string{"mail", "displayName", "userPassword", "memberOf"},
 	)
 
 }
