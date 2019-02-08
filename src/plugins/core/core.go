@@ -30,11 +30,24 @@ import (
 	"path/filepath"
 )
 
+type jsonConfigType struct {
+	Nodes map[string]JsonNodeType `json:"nodes"`
+}
+
+type JsonNodeType struct {
+	Host                 string  `json:"host"`
+	Port                 float64 `json:"port"`
+	Type                 float64 `json:"type"`
+	PeerCertSignatureReq string  `json:"peerCertSignatureReq"`
+	PeerCertSignature    string  `json:"peerCertSignature"`
+}
+
 var logging clog.Logger
 var corePlugin msgbus.Plugin
 var NodeName string
 var ConfigPath string
 var jsonConfig map[string]interface{}
+var jsonConfigNew jsonConfigType
 
 func ParseCmdLine() {
 
@@ -59,6 +72,7 @@ func Init() {
 	corePlugin.ListenForGroup("co", onMessage)
 
 	jsonConfig = make(map[string]interface{})
+
 }
 
 const NodeTypeUndefined int = 0 // do nothing with it
@@ -66,7 +80,7 @@ const NodeTypeServer int = 1    // serve an connection
 const NodeTypeClient int = 2    // connect to an server as client
 const NodeTypeIncoming int = 3  // incoming connection from another node
 
-type nodesIterateFct func(map[string]interface{}, string, int, string, int) // name, type, host, port
+type nodesIterateFct func(JsonNodeType, string, int, string, int) // name, type, host, port
 
 func ConfigRead() {
 
@@ -90,6 +104,8 @@ func ConfigRead() {
 
 	err = json.Unmarshal(byteValue, &jsonConfig)
 
+	err = json.Unmarshal(byteValue, &jsonConfigNew)
+
 	/*
 		if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
 			fmt.Println(jsonNodes)
@@ -108,30 +124,24 @@ func ConfigRead() {
 }
 
 func IterateNodes(nodesIterateFctPt nodesIterateFct) {
-	if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
-		for nodeName, jsonNodeInterface := range jsonNodes {
 
-			if jsonNode, ok := jsonNodeInterface.(map[string]interface{}); ok {
+	for nodeName, jsonNode := range jsonConfigNew.Nodes {
 
-				nodeType := NodeTypeUndefined
-				if jsonNode["type"] != nil {
-					nodeType = int(jsonNode["type"].(float64))
-				}
+		var nodeType int = int(jsonNode.Type)
 
-				nodeHost := "127.0.0.1"
-				if jsonNode["host"] != nil {
-					nodeHost = jsonNode["host"].(string)
-				}
-
-				nodePort := 4444
-				if jsonNode["port"] != nil {
-					nodePort = int(jsonNode["port"].(float64))
-				}
-
-				nodesIterateFctPt(jsonNode, nodeName, nodeType, nodeHost, nodePort)
-			}
+		nodeHost := "127.0.0.1"
+		if jsonNode.Host != "" {
+			nodeHost = jsonNode.Host
 		}
+
+		var nodePort int = 4444
+		if jsonNode.Port != 0 {
+			nodePort = int(jsonNode.Port)
+		}
+
+		nodesIterateFctPt(jsonNode, nodeName, nodeType, nodeHost, nodePort)
 	}
+
 }
 
 // This function return an map from the node with nodeName
@@ -263,16 +273,16 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getNodes" {
 
-		IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
+		IterateNodes(func(jsonNode JsonNodeType, nodeName string, nodeType int, host string, port int) {
 
 			var requested bool
 			var accepted bool
 
-			if jsonNode["peerCertSignatureReq"] != nil {
+			if jsonNode.PeerCertSignatureReq != "" {
 				requested = true
 				accepted = false
 			}
-			if jsonNode["peerCertSignature"] != nil {
+			if jsonNode.PeerCertSignature != "" {
 				requested = false
 				accepted = true
 			}
@@ -320,16 +330,16 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 		ConfigSave()
 
-		IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
+		IterateNodes(func(jsonNode JsonNodeType, nodeName string, nodeType int, host string, port int) {
 
 			var requested bool
 			var accepted bool
 
-			if jsonNode["peerCertSignatureReq"] == nil {
+			if jsonNode.PeerCertSignatureReq != "" {
 				requested = true
 				accepted = false
 			}
-			if jsonNode["peerCertSignature"] == nil {
+			if jsonNode.PeerCertSignature != "" {
 				requested = false
 				accepted = true
 			}
