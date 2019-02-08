@@ -157,7 +157,7 @@ func Init() {
 	plugin.ListenForGroup("tls", onMessage)
 
 	// okay, get server-config
-	core.IterateNodes(func(jsonNode map[string]interface{}, nodeName string, nodeType int, host string, port int) {
+	core.IterateNodes(func(jsonNode core.JsonNodeType, nodeName string, nodeType int, host string, port int) {
 
 		if nodeType == core.NodeTypeServer {
 			go serve(fmt.Sprintf("%s:%d", host, port))
@@ -176,7 +176,7 @@ func CreateKeyPair(nodeName string) error {
 		cmdKey := exec.Command("openssl", "ecparam", "-genkey", "-name", "secp384r1",
 			"-out", nodeName+".key",
 		)
-		logging.Error("CREATEKEY", fmt.Sprintf("Create %s.key", nodeName))
+		logging.Info("CREATEKEY", fmt.Sprintf("Create %s.key", nodeName))
 		errKey := cmdKey.Run()
 		if errKey != nil {
 			logging.Error("CREATEKEY", fmt.Sprintf("%s", errKey))
@@ -191,7 +191,7 @@ func CreateKeyPair(nodeName string) error {
 			"-days", "3650",
 			"-subj", "/C=DE/ST=UNKNOWN/L=UNKNOWN/O=COPILOTD/OU=DAEMON/CN="+nodeName,
 		)
-		logging.Error("CREATEKEY", fmt.Sprintf("Create %s.crt with %s", nodeName, cmdCRT.Args))
+		logging.Info("CREATEKEY", fmt.Sprintf("Create %s.crt with %s", nodeName, cmdCRT.Args))
 		errCRT := cmdCRT.Run()
 		if errCRT != nil {
 			logging.Error("CREATEKEY", fmt.Sprintf("%s", errCRT))
