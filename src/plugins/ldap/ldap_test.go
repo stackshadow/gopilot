@@ -41,7 +41,7 @@ var LdapTestHostName = "localhost"
 var LdapTestBindDN = "cn=admin,dc=integration,dc=test"
 var LdapTestPassword = "secret"
 
-func TestConnectDisconnect(t *testing.T) {
+func TestLdapConnectDisconnect(t *testing.T) {
 	clog.Init()
 	clog.EnableDebug()
 	msgbus.MsgBusInit()
@@ -56,33 +56,18 @@ func TestConnectDisconnect(t *testing.T) {
 	ldapClassInetOrgPersonRegister()
 	ldapClassgroupOfNamesRegister()
 
-	err := BindConnect("localhost", 389, "cn=admin,dc=integration,dc=test", "secret")
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-	defer disconnect()
+	// we need our global client
+	ldapClient = ldapClientNew()
 
+	// we mock the connection
+	var mockedConnection gopilotLdapConnectionMocked
+	ldapClient.conn = &mockedConnection
+	ldapClient.isConnected = false
+
+	ldapClient.BindConnect("", 0, "", "")
 }
 
 func TestCreateOUAndCheckIfExist(t *testing.T) {
-
-	// we init the global class storage
-	ldapClassInit()
-
-	// we create for every type a class to create the objectClass and attributes search strings
-	ldapClassOrganizationRegister()
-	ldapClassOrganizationalUnitRegister()
-	ldapClassInetOrgPersonRegister()
-	ldapClassgroupOfNamesRegister()
-
-	// connect
-	err := BindConnect(LdapTestHostName, 389, LdapTestBindDN, LdapTestPassword)
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-	defer disconnect()
 
 	// add an orga
 	err, orga := organizationCreate("dc=test", "integration")
@@ -90,7 +75,7 @@ func TestCreateOUAndCheckIfExist(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	err = orga.Add(ldapCon)
+	err = orga.Add(ldapClient)
 	if err != nil {
 		t.Error(err)
 		return
@@ -102,43 +87,26 @@ func TestCreateOUAndCheckIfExist(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	err = orgaUnit.Add(ldapCon)
+	err = orgaUnit.Add(ldapClient)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// check if it exist
-	err, result := orgaUnit.Exists(ldapCon)
+	err, result := orgaUnit.Exists(ldapClient)
 	if result == false {
 		t.Error(err)
 		return
 	}
 
 	// read and compare
-	/* err, curUnit := */
+	// err, curUnit :=
 	// err, existingObject := GetLdapObject(ldapCon, orgaUnit.Dn)
 
 }
 
 func TestCreateUserAndModifyIt(t *testing.T) {
-
-	// we init the global class storage
-	ldapClassInit()
-
-	// we create for every type a class to create the objectClass and attributes search strings
-	ldapClassOrganizationRegister()
-	ldapClassOrganizationalUnitRegister()
-	ldapClassInetOrgPersonRegister()
-	ldapClassgroupOfNamesRegister()
-
-	// connect
-	err := BindConnect(LdapTestHostName, 389, LdapTestBindDN, LdapTestPassword)
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-	defer disconnect()
 
 	// add an user
 	err, user := inetOrgPersonCreate("dc=integration,dc=test", "testuser", "Test User", "Georg")
@@ -146,10 +114,10 @@ func TestCreateUserAndModifyIt(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-	user.Add(ldapCon)
+	user.Add(ldapClient)
 
 	// get it back
-	err, curUserObject := GetLdapObject(ldapCon, "uid=testuser,dc=integration,dc=test")
+	err, curUserObject := GetLdapObject(ldapClient, "uid=testuser,dc=integration,dc=test")
 	if err != nil {
 		t.Error(err.Error())
 		return
@@ -170,14 +138,14 @@ func TestCreateUserAndModifyIt(t *testing.T) {
 
 	// we change an attribute
 	user.SetAttrValue("sn", []string{"John"})
-	err = user.Change(ldapCon)
+	err = user.Change(ldapClient)
 	if err != nil {
 		t.Error(err.Error())
 		return
 	}
 
 	// get it back
-	err, curUserObject = GetLdapObject(ldapCon, "uid=testuser,dc=integration,dc=test")
+	err, curUserObject = GetLdapObject(ldapClient, "uid=testuser,dc=integration,dc=test")
 	if err != nil {
 		t.Error(err.Error())
 		return
@@ -196,8 +164,36 @@ func TestCreateUserAndModifyIt(t *testing.T) {
 		return
 	}
 
+	// change element which not exists before
+	user.SetAttrValue("mail", []string{"john@gmail.com"})
+	err = user.Change(ldapClient)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	// get it back
+	err, curUserObject = GetLdapObject(ldapClient, "uid=testuser,dc=integration,dc=test")
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	// get sn
+	err, curUseValues = curUserObject.GetAttrValue("mail")
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	// check if sn is correct
+	if curUseValues[0] != "john@gmail.com" {
+		t.Error("Error on user")
+		return
+	}
+
 	// remove it
-	err = curUserObject.Remove(ldapCon)
+	err = curUserObject.Remove(ldapClient)
 	if err != nil {
 		t.Error(err.Error())
 		return

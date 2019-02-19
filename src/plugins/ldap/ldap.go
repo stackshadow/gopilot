@@ -6,7 +6,6 @@ import (
 	"plugins/core"
 
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -17,12 +16,12 @@ import (
 // private vars
 var plugin msgbus.Plugin
 var logging clog.Logger
+var ldapClient SLdapClient
 var ldapCon *ldap.Conn = nil
 
 var ldapConnected bool
 var ldapNamespace string
 var ldapBaseOrgaName string
-var ldapBaseDn string
 
 var ldapUserSuffixDn string
 var ldapGroupSuffixDn string
@@ -71,6 +70,9 @@ func Init() {
 	ldapClassOrganizationalUnitRegister()
 	ldapClassInetOrgPersonRegister()
 	ldapClassgroupOfNamesRegister()
+
+	// we need our global client
+	ldapClient = ldapClientNew()
 
 	// register plugin on messagebus
 	plugin = msgbus.NewPlugin("LDAP")
@@ -150,46 +152,13 @@ func SetLdapConfig(newConfig ldapConnectionConfig) error {
 	return nil
 }
 
-func BindConnect(hostname string, port int, binddn, password string) error {
-
-	// already connected
-	if ldapCon != nil {
-		err := errors.New(fmt.Sprintf("Already connected"))
-		logging.Info("BindConnect", err.Error())
-		// yeah, we return nil here, because we would like connect, and we are connected
-		return nil
-	}
-
-	// connect
-	tempConnection, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", hostname, port))
-	if err != nil {
-		disconnect()
-		logging.Error("BindConnect", err.Error())
-		return err
-	}
-	ldapCon = tempConnection
-	logging.Info("BindConnect", "Connected")
-
-	// authenticate
-	err = ldapCon.Bind(binddn, password)
-	if err != nil {
-		disconnect()
-		logging.Error("BindConnect", err.Error())
-		return err
-	}
-
-	ldapConnected = true
-
-	return nil
-}
-
 func Connect() error {
 
 	// read config-object from config-file
 	jsonLdapConfig := GetLdapConfig()
 
 	// try to connect
-	err := BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
+	err := ldapClient.BindConnect(jsonLdapConfig.Host, int(jsonLdapConfig.Port), jsonLdapConfig.BindDN, jsonLdapConfig.Password)
 	if err != nil {
 		return err
 	}
@@ -197,23 +166,13 @@ func Connect() error {
 	// maybe the orga changed
 	_, ldapOrgaObj := organizationCreate(jsonLdapConfig.Namespace, jsonLdapConfig.OrgaName)
 	if ldapOrgaObj != nil {
-		ldapOrgaObj.Add(ldapCon)
+		ldapOrgaObj.Add(ldapClient)
 	}
 
 	// remember the baseDN of our orga ( the base of everything )
-	ldapBaseDn = ldapOrgaObj.Dn
+	ldapClient.baseDn = ldapOrgaObj.Dn
 
 	return nil
-}
-
-func disconnect() {
-	if ldapCon != nil {
-		ldapCon.Close()
-	}
-	ldapCon = nil
-	ldapConnected = false
-
-	logging.Info("disconnect", "Disconnected")
 }
 
 type seachResultFct func(string /*basedn*/, string /*dn*/, string /*type*/, string /*displayName*/)
@@ -332,14 +291,14 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		message.Answer(&plugin, "connected", "")
 		return
 	}
 
 	if command == "disconnect" {
-		disconnect()
+		ldapClient.Disconnect()
 		message.Answer(&plugin, "disconnected", "No config")
 		return
 	}
@@ -361,12 +320,12 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// we want the base-dn
 		if payload == "" {
 
-			err, ldapOrgaObj := GetLdapObject(ldapCon, ldapBaseDn)
+			err, ldapOrgaObj := GetLdapObject(ldapClient, ldapClient.baseDn)
 			if err != nil {
 				message.Answer(&plugin, "error", err.Error())
 				return
@@ -379,7 +338,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		SearchOneLevel(ldapCon, payload, func(entry *ldap.Entry) {
+		SearchOneLevel(ldapClient, payload, func(entry *ldap.Entry) {
 
 			// get the object of the corresponding class
 			objectClass := entry.GetAttributeValues("objectClass")
@@ -418,10 +377,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// get ldapObject from fulldn
-		err, ldapObject := GetLdapObject(ldapCon, payload)
+		err, ldapObject := GetLdapObject(ldapClient, payload)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -497,10 +456,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// send change request
-		err = ldapObjectToCreate.Add(ldapCon)
+		err = ldapObjectToCreate.Add(ldapClient)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -561,7 +520,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// if DN was not changed by mainAttr, we use the dn from the change request
 		if ldapObjectToChange.Dn == "" {
@@ -570,11 +529,11 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 		// compare if dn is changed
 		if ldapObjectToChange.Dn != changeRequestObject.Dn {
-			ldapObjectToChange.Rename(ldapCon, changeRequestObject.Dn)
+			ldapObjectToChange.Rename(ldapClient, changeRequestObject.Dn)
 		}
 
 		// send change request
-		err = ldapObjectToChange.Change(ldapCon)
+		err = ldapObjectToChange.Change(ldapClient)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -592,14 +551,14 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 		// try to connect
 		err := Connect()
+		defer ldapClient.Disconnect()
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
 
 		// remove
-		err = ldapObject.Remove(ldapCon)
+		err = ldapObject.Remove(ldapClient)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -617,7 +576,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		err, newObject := ldapClassCreateLdapObject([]string{"groupOfNames"})
 		if err != nil {
@@ -625,7 +584,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		newObject.GetClassElements(ldapCon, ldapBaseDn, func(entry *ldap.Entry) {
+		newObject.GetClassElements(ldapClient, ldapClient.baseDn, func(entry *ldap.Entry) {
 
 			// get the object of the corresponding class
 			err, ldapObject := ldapClassCreateLdapObject([]string{"groupOfNames"})
@@ -651,7 +610,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		err, newObject := ldapClassCreateLdapObject([]string{"inetOrgPerson"})
 		if err != nil {
@@ -659,7 +618,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		newObject.GetClassElements(ldapCon, ldapBaseDn, func(entry *ldap.Entry) {
+		newObject.GetClassElements(ldapClient, ldapClient.baseDn, func(entry *ldap.Entry) {
 
 			// get the object of the corresponding class
 			err, ldapObject := ldapClassCreateLdapObject([]string{"inetOrgPerson"})
@@ -698,10 +657,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// add attribute 'member'
-		err = ldapObject.AddAttribute(ldapCon, "member", []string{changeMemberRequest.UserDn})
+		err = ldapObject.AddAttribute(ldapClient, "member", []string{changeMemberRequest.UserDn})
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -727,10 +686,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&plugin, "error", err.Error())
 			return
 		}
-		defer disconnect()
+		defer ldapClient.Disconnect()
 
 		// ldapObject: group
-		err, ldapObject := GetLdapObject(ldapCon, changeMemberRequest.GroupDn)
+		err, ldapObject := GetLdapObject(ldapClient, changeMemberRequest.GroupDn)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return
@@ -751,7 +710,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 		}
 
 		// add attribute 'member'
-		err = ldapObject.ReplaceAttribute(ldapCon, "member", groupArray)
+		err = ldapObject.ReplaceAttribute(ldapClient, "member", groupArray)
 		if err != nil {
 			message.Answer(&plugin, "error", err.Error())
 			return

@@ -120,10 +120,10 @@ func (curObject *ldapObject) GetAttrValue(attributeName string) (error, []string
 @detail
 This function don't log
 */
-func (curObject *ldapObject) Exists(ldapConnection *ldap.Conn) (error, bool) {
+func (curObject *ldapObject) Exists(client SLdapClient) (error, bool) {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected"), false
 	}
 
@@ -137,7 +137,7 @@ func (curObject *ldapObject) Exists(ldapConnection *ldap.Conn) (error, bool) {
 	)
 
 	// send serch request
-	sr, err := ldapConnection.Search(searchRequest)
+	sr, err := client.conn.Search(searchRequest)
 	if err != nil {
 
 		// on resultcode 32 ( not found ) no error occured
@@ -159,15 +159,15 @@ func (curObject *ldapObject) Exists(ldapConnection *ldap.Conn) (error, bool) {
 	return nil, false
 }
 
-func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
+func (curObject *ldapObject) Add(client SLdapClient) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
 	// check if already exist
-	err, exist := curObject.Exists(ldapConnection)
+	err, exist := curObject.Exists(client)
 	if err != nil {
 		logging.Error(curObject.Dn, err.Error())
 		return err
@@ -220,7 +220,7 @@ func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
 	}
 
 	// Send out the request
-	err = ldapConnection.Add(addReq)
+	err = client.conn.Add(addReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
@@ -230,15 +230,15 @@ func (curObject *ldapObject) Add(ldapConnection *ldap.Conn) error {
 	return nil
 }
 
-func (curObject *ldapObject) Remove(ldapConnection *ldap.Conn) error {
+func (curObject *ldapObject) Remove(client SLdapClient) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
 	delRequest := ldap.NewDelRequest(curObject.Dn, nil)
-	err := ldapConnection.Del(delRequest)
+	err := client.conn.Del(delRequest)
 	if err != nil {
 		return err
 	}
@@ -247,10 +247,10 @@ func (curObject *ldapObject) Remove(ldapConnection *ldap.Conn) error {
 	return nil
 }
 
-func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
+func (curObject *ldapObject) Change(client SLdapClient) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -290,7 +290,7 @@ func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
 	}
 
 	// Send out the request
-	err := ldapConnection.Modify(changeReq)
+	err := client.conn.Modify(changeReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
@@ -300,10 +300,10 @@ func (curObject *ldapObject) Change(ldapConnection *ldap.Conn) error {
 	return nil
 }
 
-func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) error {
+func (curObject *ldapObject) Rename(client SLdapClient, oldDN string) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -322,7 +322,7 @@ func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) err
 
 	req := ldap.NewModifyDNRequest(oldDN, curObject.AttrMain+"="+mainAttrValue[0], true, "")
 
-	if err := ldapConnection.ModifyDN(req); err != nil {
+	if err := client.conn.ModifyDN(req); err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
 	}
@@ -333,10 +333,10 @@ func (curObject *ldapObject) Rename(ldapConnection *ldap.Conn, oldDN string) err
 	return nil
 }
 
-func (curObject *ldapObject) AddAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+func (curObject *ldapObject) AddAttribute(client SLdapClient, attrName string, attrValues []string) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -345,7 +345,7 @@ func (curObject *ldapObject) AddAttribute(ldapConnection *ldap.Conn, attrName st
 	changeReq.Add(attrName, attrValues)
 
 	// Send out the request
-	err := ldapConnection.Modify(changeReq)
+	err := client.conn.Modify(changeReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
@@ -355,10 +355,10 @@ func (curObject *ldapObject) AddAttribute(ldapConnection *ldap.Conn, attrName st
 	return nil
 }
 
-func (curObject *ldapObject) ReplaceAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+func (curObject *ldapObject) ReplaceAttribute(client SLdapClient, attrName string, attrValues []string) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -367,7 +367,7 @@ func (curObject *ldapObject) ReplaceAttribute(ldapConnection *ldap.Conn, attrNam
 	changeReq.Replace(attrName, attrValues)
 
 	// Send out the request
-	err := ldapConnection.Modify(changeReq)
+	err := client.conn.Modify(changeReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
@@ -377,10 +377,10 @@ func (curObject *ldapObject) ReplaceAttribute(ldapConnection *ldap.Conn, attrNam
 	return nil
 }
 
-func (curObject *ldapObject) RemoveAttribute(ldapConnection *ldap.Conn, attrName string, attrValues []string) error {
+func (curObject *ldapObject) RemoveAttribute(client SLdapClient, attrName string, attrValues []string) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -389,7 +389,7 @@ func (curObject *ldapObject) RemoveAttribute(ldapConnection *ldap.Conn, attrName
 	changeReq.Delete(attrName, attrValues)
 
 	// Send out the request
-	err := ldapConnection.Modify(changeReq)
+	err := client.conn.Modify(changeReq)
 	if err != nil {
 		logging.Error(fmt.Sprintf("%s", curObject.Dn), err.Error())
 		return err
@@ -423,10 +423,10 @@ func (curObject *ldapObject) ToJsonString() string {
 	return string(groupObjectBytes)
 }
 
-func (curObject *ldapObject) GetClassElements(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
+func (curObject *ldapObject) GetClassElements(client SLdapClient, basedn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -455,7 +455,7 @@ func (curObject *ldapObject) GetClassElements(ldapConnection *ldap.Conn, basedn 
 		nil,
 	)
 
-	sr, err := ldapConnection.Search(searchRequest)
+	sr, err := client.conn.Search(searchRequest)
 	if err != nil {
 		logging.Error("SearchAll", err.Error())
 		return err
@@ -470,10 +470,10 @@ func (curObject *ldapObject) GetClassElements(ldapConnection *ldap.Conn, basedn 
 	return nil
 }
 
-func SearchOneLevel(ldapConnection *ldap.Conn, basedn string, callback func(*ldap.Entry)) error {
+func SearchOneLevel(client SLdapClient, basedn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -493,7 +493,7 @@ func SearchOneLevel(ldapConnection *ldap.Conn, basedn string, callback func(*lda
 		nil,
 	)
 
-	sr, err := ldapConnection.Search(searchRequest)
+	sr, err := client.conn.Search(searchRequest)
 	if err != nil {
 		logging.Error("SearchAll", err.Error())
 		return err
@@ -510,10 +510,10 @@ func SearchOneLevel(ldapConnection *ldap.Conn, basedn string, callback func(*lda
 	return nil
 }
 
-func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap.Entry)) error {
+func SearchOneFull(client SLdapClient, fulldn string, callback func(*ldap.Entry)) error {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected")
 	}
 
@@ -533,7 +533,7 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 		nil,
 	)
 
-	sr, err := ldapConnection.Search(searchRequest)
+	sr, err := client.conn.Search(searchRequest)
 	if err != nil {
 		logging.Error("SearchAll", err.Error())
 		return err
@@ -554,17 +554,17 @@ func SearchOneFull(ldapConnection *ldap.Conn, fulldn string, callback func(*ldap
 Get an ldapObject from your ldap-server
  - Will automatic calculate the base DN
 **/
-func GetLdapObject(ldapConnection *ldap.Conn, fullDn string) (error, *ldapObject) {
+func GetLdapObject(client SLdapClient, fullDn string) (error, *ldapObject) {
 
 	// connected ?
-	if ldapConnection == nil {
+	if client.isConnected == false {
 		return errors.New("Not connected"), nil
 	}
 
 	var retError error
 	var retLdapObject *ldapObject
 
-	err := SearchOneFull(ldapConnection, fullDn, func(entry *ldap.Entry) {
+	err := SearchOneFull(client, fullDn, func(entry *ldap.Entry) {
 
 		objectClass := entry.GetAttributeValues("objectClass")
 		dn := entry.DN
