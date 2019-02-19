@@ -36,10 +36,11 @@ type pluginCWs struct {
 	conn   *websocket.Conn
 }
 
+var startWebSocket bool
 var webSocketAddr string
-var webServerAddr string
 var startWebServer bool
 var webServerRoot string
+var webServerAddr string
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -48,26 +49,30 @@ var upgrader = websocket.Upgrader{
 } // use default options
 
 func ParseCmdLine() {
-	flag.StringVar(&webSocketAddr, "websocketaddr", "localhost:3333", "Web-Socket Adress for webinterface")
-	flag.StringVar(&webServerAddr, "webserveraddr", "localhost:9090", "Web-Server Adress for webinterface")
+	flag.BoolVar(&startWebSocket, "websocket", false, "Enable Websocket-Server")
+	flag.StringVar(&webSocketAddr, "websocket.addr", "localhost:3333", "Web-Socket Adress for webinterface")
+
 	flag.BoolVar(&startWebServer, "webserver", false, "Enable Webserver")
-	flag.StringVar(&webServerRoot, "webroot", "/mnt/local/data/Develop/copilot/gopilotd-web/dist", "Root directory of webfiles")
+	flag.StringVar(&webServerAddr, "webserver.addr", "localhost:9090", "Web-Server Adress for webinterface")
+	flag.StringVar(&webServerRoot, "webserver.root", "/app/www/gopilot", "Root directory of webfiles")
 
 }
 
 func Init() pluginCWs {
 	var newCWs pluginCWs
-	if startWebServer == false {
-		return newCWs
+	newCWs.logging = clog.New("WS")
+
+	if startWebSocket == true {
+		newCWs.plugin = msgbus.NewPlugin("Websocket")
+		newCWs.plugin.Register()
+		newCWs.plugin.ListenForGroup("", newCWs.onMessage)
+
+		go newCWs.serveWebsocket()
 	}
 
-	newCWs.logging = clog.New("WS")
-	newCWs.plugin = msgbus.NewPlugin("Websocket")
-	newCWs.plugin.Register()
-	newCWs.plugin.ListenForGroup("", newCWs.onMessage)
-
-	go newCWs.serveWebsocket()
-	go newCWs.serveWebserver()
+	if startWebServer == true {
+		go newCWs.serveWebserver()
+	}
 
 	// web-server
 	/*
