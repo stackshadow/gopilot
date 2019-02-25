@@ -21,6 +21,7 @@ package nft
 import (
 	"core/clog"
 	"encoding/json"
+	"flag"
 	"plugins/core"
 )
 
@@ -34,6 +35,15 @@ type nftJSONConfig struct {
 
 var nftConfig nftJSONConfig
 
+var nftSkipApplyRules bool
+
+/*
+ParseCmdLine read the cmd-line arguments and set global values from it
+*/
+func ParseCmdLine() {
+	flag.BoolVar(&nftSkipApplyRules, "nftSkipOnStart", false, "If true, dont apply rules on application start")
+}
+
 /*
 Init the nft-modules
 */
@@ -44,7 +54,9 @@ func Init() {
 	// load from config
 	nftConfig, _ = loadFromConfig()
 
-	nftConfig.applyAll()
+	if nftSkipApplyRules == false {
+		nftConfig.applyAll()
+	}
 	/*
 		chain := nftConfig.Tables["tGopilot"].Chains["input"]
 		rule := chain.ruleNew(nftPolicyAccept)
