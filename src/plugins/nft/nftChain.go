@@ -26,9 +26,9 @@ import (
 type nftChain struct {
 	table  *nftTable
 	name   string
-	Hook   string             `json:"hook"`
-	Policy nftPolicy          `json:"policy"`
-	Rules  map[string]*nftRule `json:"rules"`
+	Hook   string     `json:"hook"`
+	Policy nftPolicy  `json:"policy"`
+	Rules  []*nftRule `json:"rules"`
 }
 
 func (table *nftTable) chainNew(chainName string, hookName string, policy nftPolicy) nftChain {
@@ -39,7 +39,6 @@ func (table *nftTable) chainNew(chainName string, hookName string, policy nftPol
 	chain.name = chainName
 	chain.Hook = hookName
 	chain.Policy = policy
-	chain.Rules = make(map[string]*nftRule)
 
 	// add it to table
 	table.Chains[chainName] = &chain

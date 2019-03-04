@@ -21,7 +21,6 @@ package msgbus
 import (
 	"core/clog"
 	"core/tools"
-
 	"fmt"
 )
 

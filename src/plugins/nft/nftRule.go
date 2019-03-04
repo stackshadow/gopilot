@@ -20,32 +20,30 @@ package nft
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	"os/exec"
 )
 
 type nftRule struct {
 	chain     *nftChain
-	uuid      string
+	index     int
+	Enabled   bool       `json:"enabled"`
 	Policy    nftPolicy  `json:"policy"`
 	Statement [][]string `json:"statements"`
 }
 
-func (chain *nftChain) ruleNew(policy nftPolicy) nftRule {
+func (chain *nftChain) ruleNew(policy nftPolicy) *nftRule {
 
 	// new rule
 	var rule nftRule
 	rule.chain = chain
+	rule.index = len(chain.Rules)
+	rule.Enabled = false
 	rule.Policy = policy
 
-	// rule-uuid
-	ruleUUID, _ := uuid.NewRandom()
-	rule.uuid = ruleUUID.String()
-
 	// add rule to chain
-	chain.Rules[ruleUUID.String()] = &rule
+	chain.Rules = append(chain.Rules, &rule)
 
-	return rule
+	return &rule
 }
 
 func (rule *nftRule) statementAdd(statement []string) {
@@ -56,6 +54,7 @@ func (rule *nftRule) statementAdd(statement []string) {
 }
 
 func (rule *nftRule) Apply() error {
+
 	// fmt.Printf("%+v\n", rule)
 
 	args := []string{
@@ -72,6 +71,12 @@ func (rule *nftRule) Apply() error {
 		args = append(args, statement...)
 	}
 	args = append(args, rule.Policy.String())
+
+	// if not enable, return
+	if rule.Enabled == false {
+		logging.Info("nftRule.Add", fmt.Sprintf("Skip rule %s", args))
+		return nil
+	}
 
 	// the command
 	cmd := exec.Command("sudo")

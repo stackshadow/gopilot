@@ -27,7 +27,9 @@ import (
 	"plugins/ctls"
 	"plugins/health"
 	"plugins/ldap"
+	"plugins/nft"
 	"plugins/webclient"
+	"runtime"
 	"time"
 )
 
@@ -38,11 +40,14 @@ type Job struct {
 
 func main() {
 
+	go printMemUsage()
+
 	clog.ParseCmdLine()
 	core.ParseCmdLine()
 	webclient.ParseCmdLine()
 	ctls.ParseCmdLine()
 	ldapclient.ParseCmdLine()
+	nft.ParseCmdLine()
 	flag.Parse()
 
 	clog.Init()
@@ -66,6 +71,7 @@ func main() {
 	webclient.Init()
 	health.Init()
 	ldapclient.Init()
+	nft.Init()
 
 	for {
 		time.Sleep(time.Second)
@@ -78,4 +84,24 @@ func testOnMessage(group, command, payload string) {
 
 func testNodeIter(nodeName string, nodeType int, host string, port int) {
 	fmt.Println("nodeName:", nodeName, "host:", host, "port:", port)
+}
+
+func bToKb(b uint64) uint64 {
+	return b / 1024
+}
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
+}
+
+func printMemUsage() {
+	for {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		// For info on each, see: https://golang.org/pkg/runtime/#MemStats
+		fmt.Printf("Alloc = %v KiB", bToKb(m.Alloc))
+		fmt.Printf("\tTotalAlloc = %v KiB", bToKb(m.TotalAlloc))
+		fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
+		fmt.Printf("\tNumGC = %v\n", m.NumGC)
+		time.Sleep(time.Second * 60)
+	}
 }
