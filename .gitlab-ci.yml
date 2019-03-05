@@ -1,0 +1,17 @@
+stages:
+  - build
+  - docker-image
+  - deploy
+
+
+# gitlab-runner exec docker build
+build:
+  stage: build
+  image: golang:1.8
+  script:
+    - export GOPATH=${PWD}
+    - make gitversion
+    - go get -d -v ./src
+    - make ./gopilot
+    - make ./gopilot.strip
+

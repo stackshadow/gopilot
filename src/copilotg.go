@@ -40,6 +40,8 @@ type Job struct {
 
 func main() {
 
+	fmt.Printf("Git Version %s from %s\n", core.Gitversion, core.Gitdate)
+
 	go printMemUsage()
 
 	clog.ParseCmdLine()
