@@ -7,7 +7,7 @@ FROM golang:1.10-alpine AS builder
 # install ca-certificates
 # binutils = strip
 RUN apk update && \
-apk add --no-cache git binutils ca-certificates && update-ca-certificates
+    apk add --no-cache git binutils ca-certificates && update-ca-certificates
 
 # Create gorunner
 # the default way
@@ -25,11 +25,11 @@ RUN go get -d -v ./src
 
 # Build the binary.
 RUN mkdir -p /app && \
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-go build -ldflags="-w -s" -o /app/gopilot ./src && \
-echo "Strip gopilot $(stat -c %s /app/gopilot) bytes" && \
-strip /app/gopilot && \
-echo "Striped gopilot $(stat -c %s /app/gopilot) bytes"
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-w -s" -o /app/gopilot ./src && \
+    echo "Strip gopilot $(stat -c %s /app/gopilot) bytes" && \
+    strip /app/gopilot && \
+    echo "Striped gopilot $(stat -c %s /app/gopilot) bytes"
 
 ############################
 # Runtime image
@@ -50,18 +50,18 @@ COPY --from=builder /app/gopilot /app/gopilot
 
 # Create an config and www dir
 RUN mkdir -p /app/config && \
-touch /app/config/core.json && \
-mkdir -p /app/www/gopilot
+    touch /app/config/core.json && \
+    mkdir -p /app/www/gopilot
 
 # start
-COPY deploy/entrypoint.bash /app/entrypoint.bash
+COPY deploy/docker/entrypoint.bash /entrypoint
 RUN chown -R 1000:0 /app && \
-chmod -R u=rwX,g=rX,o= /app && \
-chmod a+rx /app/gopilot /app/entrypoint.bash
+    chmod -R u=rwX,g=rX,o= /app && \
+    chmod a+rx /app/gopilot /entrypoint
 
 
 # Use an unprivileged user.
 USER 1000
 WORKDIR /app
-ENTRYPOINT [ "/bin/sh", "/app/entrypoint.bash"]
-CMD ["/app/gopilot"]
+ENTRYPOINT [ "/bin/sh", "/entrypoint"]
+CMD [ "-websocket", "-nftSkipOnStart", "-websocket.addr", ":3333"]
