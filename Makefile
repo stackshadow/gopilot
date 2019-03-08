@@ -1,39 +1,27 @@
 
-.PHONY: src/plugins/core/gitversion.go
+
 
 ################# We build on this system #################
-./gopilot:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+src/github.com/gorilla/websocket:
+	GOPATH=$${PWD} go get -v ./src
+./gopilot: src/github.com/gorilla/websocket
+	#GOARCH=amd64
+	GOPATH=$${PWD} CGO_ENABLED=0 GOOS=linux \
 	go build -ldflags="-w -s" -o ./gopilot ./src
 ./gopilot.strip: ./gopilot
 	strip gopilot
 	touch $@
 clean:
-	@rm -vf ./gopilot.strip
-	@rm -vf ./gopilot
+	@rm -vf ./gopilot ./gopilot.strip
+	@rm -vfR ./src/github.com
+	@rm -vfR ./src/gopkg.in
+	@make -C deploy/arch clean
+	@make -C deploy/docker clean
 
-################# build over iron dockerimage #################
-build-docker-iron: gitversion
-	docker run \
-	--rm \
-	-v "$$PWD/../src":/go/src \
-	-v "$$PWD":/go/bin \
-	-w /go/src iron/go:dev go build -o /go/bin/gopilot
-
-
-################# build and create image #################
-docker-alpine: gitversion
-	docker build \
-	--tag gopilot:latest \
-	--file deploy/Dockerfile.alpine.multistage \
-	.
-
-################# buld arch image #################
-docker-arch: gitversion gopilot.strip
-	docker build \
-	--tag gopilot:latest \
-	--file deploy/Dockerfile.arch \
-	.
+install:
+	install --directory $${DESTDIR}/etc/gopilot
+	install --directory $${DESTDIR}/usr/bin
+	install ./gopilot $${DESTDIR}/usr/bin/gopilot
 
 gitversion: src/plugins/core/gitversion.go
 src/plugins/core/gitversion.go:
@@ -44,15 +32,6 @@ src/plugins/core/gitversion.go:
 squash:
 	docker-squash -t gopilot:latest gopilot:latest
 
-tag:
-	@docker tag gopilot:latest $${REPO}gopilot:$$(uname -m)-latest
-	@docker tag gopilot:latest $${REPO}gopilot:$$(git log -1 --pretty=format:%h)
-
-push:
-	@echo "> Push $${REPO}gopilot:$$(uname -m)-latest"
-	@docker push $${REPO}gopilot:$$(uname -m)-latest
-	@echo "> Push $${REPO}gopilot:$$(git log -1 --pretty=format:%h)"
-	@docker push $${REPO}gopilot:$$(git log -1 --pretty=format:%h)
 
 
 ################# Run latest builded image #################
