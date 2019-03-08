@@ -1,0 +1,13 @@
+[Unit]
+Description=gopilotd
+
+[Service]
+User=gopilot
+Group=gopilot
+ExecStart=/usr/bin/gopilot -configPath /etc/gopilot -serverAdress 0.0.0.0:7676
+Restart=always
+RestartSec=10
+
+
+[Install]
+WantedBy=default.target

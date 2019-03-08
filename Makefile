@@ -23,6 +23,14 @@ install:
 	install --directory $${DESTDIR}/usr/bin
 	install ./gopilot $${DESTDIR}/usr/bin/gopilot
 
+install-service:
+	install --directory $${DESTDIR}/usr/lib/systemd/system
+	install deploy/common/gopilotd.service $${DESTDIR}/usr/lib/systemd/system/gopilotd.service
+
+install-sudo:
+	install --directory $${DESTDIR}/etc/sudoers.d
+	install deploy/common/gopilot-nft $${DESTDIR}/etc/sudoers.d/gopilot-nft
+
 gitversion: src/plugins/core/gitversion.go
 src/plugins/core/gitversion.go:
 	@echo "package core" > $@

@@ -12,6 +12,7 @@ $(pkgname)-$(pkgver).tar.gz:
 	--transform 's,^\.,$(pkgname)-$(pkgver),' \
 	-caf $@ \
 	./Makefile \
+	./deploy/common \
 	./src/core \
 	./src/plugins \
 	./src/copilotg.go 

@@ -13,7 +13,7 @@ arch=('x86_64' 'aarch64')
 url=""
 license=('GPL')
 groups=()
-depends=()
+depends=('sudo')
 makedepends=('go')
 checkdepends=()
 optdepends=()
@@ -22,7 +22,7 @@ conflicts=()
 replaces=()
 backup=()
 options=()
-install=
+install=gopilot.install
 changelog=
 source=("$pkgname-$pkgver.tar.gz" )
 noextract=()
@@ -44,5 +44,9 @@ check() {
 
 package() {
 	cd "$pkgname-$pkgver"
-	make DESTDIR="$pkgdir/" install
+	make DESTDIR="$pkgdir/" install install-service install-sudo
+
+
+
+
 }
