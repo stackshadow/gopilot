@@ -48,7 +48,7 @@ func SetData(nodeName string, nodeType int, host string, port int) error {
 	}
 
 	// overwrite node
-	nodes["nodeName"] = node
+	nodes[nodeName] = node
 
 	// save it back
 	config.SetJSONObject("nodes", nodes)

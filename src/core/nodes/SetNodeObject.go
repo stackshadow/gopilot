@@ -20,23 +20,23 @@ package nodes
 
 import (
 	"core/config"
-	"fmt"
 )
 
-// GetNodeObject return an map from the node with nodeName
+// SetNodeObject return an map from the node with nodeName
 // This function DONT create a new Node inside the json if it dont exist
-func GetNodeObject(nodeName string) (map[string]interface{}, error) {
+func SetNodeObject(nodeName string, nodeObject map[string]interface{}) error {
 
 	// first, get the nodes from config
 	nodes, err := config.GetJSONObject("nodes")
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// then get the node itselfe
-	if node, ok := nodes[nodeName].(map[string]interface{}); ok {
-		return node, nil
-	}
+	// overwrite node
+	nodes[nodeName] = nodeObject
 
-	return nil, fmt.Errorf("Node '%s' not found", nodeName)
+	// save it back
+	config.SetJSONObject("nodes", nodes)
+
+	return nil
 }
