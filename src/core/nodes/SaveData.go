@@ -20,22 +20,39 @@ package nodes
 
 import (
 	"core/config"
+	"github.com/mitchellh/mapstructure"
 )
 
-// Delete an node
-func Delete(nodeName string) {
+// SaveData will set the nodeType, hostname and port of an node ( will be created if not exist
+func SaveData(nodeName string, nodeType int, host string, port int) error {
+
+	// get the single node
+	var node JSONNodeType
+	nodeI, err := GetNodeObject(nodeName)
+	if err == nil {
+		err = mapstructure.Decode(nodeI, node)
+		if err != nil {
+			return err
+		}
+	}
+
+	node.Type = float64(nodeType)
+	node.Host = host
+	node.Port = float64(port)
 
 	// save it back
 	// first, get the nodes from config
 	nodes, err := config.GetJSONObject("nodes")
 	if err != nil {
-		return
+		return err
 	}
 
-	// delete node
-	delete(nodes, nodeName)
+	// overwrite node
+	nodes[nodeName] = node
 
 	// save it back
 	config.SetJSONObject("nodes", nodes)
 	config.Save()
+
+	return nil
 }

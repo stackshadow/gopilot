@@ -22,20 +22,22 @@ import (
 	"core/config"
 )
 
-// Delete an node
-func Delete(nodeName string) {
+// SaveNodeObject return an map from the node with nodeName
+// This function DONT create a new Node inside the json if it dont exist
+func SaveNodeObject(nodeName string, nodeObject map[string]interface{}) error {
 
-	// save it back
 	// first, get the nodes from config
 	nodes, err := config.GetJSONObject("nodes")
 	if err != nil {
-		return
+		return err
 	}
 
-	// delete node
-	delete(nodes, nodeName)
+	// overwrite node
+	nodes[nodeName] = nodeObject
 
 	// save it back
 	config.SetJSONObject("nodes", nodes)
 	config.Save()
+
+	return nil
 }
