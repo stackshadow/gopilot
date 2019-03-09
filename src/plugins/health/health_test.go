@@ -16,7 +16,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-package pluginHealth
+package pluginhealth
 
 import "testing"
 import "core/clog"
@@ -26,14 +26,14 @@ func TestPluginList(t *testing.T) {
 
 	clog.Init()
 	clog.EnableDebug()
-	msgbus.Init()
+	msgbus.MsgBusInit()
 
 	Init()
 
 	testPlugin := msgbus.NewPlugin("HEALTH_TEST")
 	testPlugin.Register()
 	testPlugin.ListenForGroup("hlt", onTestPluginListMessage)
-	testPlugin.Publish(core.NodeName, core.NodeName)
+	// testPlugin.Publish(core.NodeName, core.NodeName)
 
 }
 

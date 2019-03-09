@@ -1,4 +1,4 @@
-package pluginLdap
+package pluginldap
 
 import (
 	"core/clog"

@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -16,7 +16,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-package pluginCore
+package plugincore
 
 import (
 	"core/clog"

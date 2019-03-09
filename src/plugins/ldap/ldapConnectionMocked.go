@@ -1,4 +1,4 @@
-package pluginLdap
+package pluginldap
 
 import (
 	"gopkg.in/ldap.v3"

@@ -1,4 +1,4 @@
-package pluginLdap
+package pluginldap
 
 /*
 RFC: https://tools.ietf.org/html/rfc2798 page 6

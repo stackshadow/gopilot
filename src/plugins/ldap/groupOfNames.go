@@ -1,4 +1,4 @@
-package pluginLdap
+package pluginldap
 
 /*
 class: inetOrgPerson

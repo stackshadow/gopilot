@@ -31,7 +31,7 @@ archlinux-ldap:latest
 
 */
 
-package pluginLdap
+package pluginldap
 
 import "testing"
 import "core/clog"
