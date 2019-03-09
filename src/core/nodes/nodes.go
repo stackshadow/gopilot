@@ -18,6 +18,10 @@ along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 
 package nodes
 
+import (
+	"core/config"
+)
+
 // JSONNodeType describe a node-configureation
 type JSONNodeType struct {
 	Host                 string  `json:"host"`
@@ -31,3 +35,13 @@ const NodeTypeUndefined int = 0 // do nothing with it
 const NodeTypeServer int = 1    // serve an connection
 const NodeTypeClient int = 2    // connect to an server as client
 const NodeTypeIncoming int = 3  // incoming connection from another node
+
+func Init() {
+
+	// first, get the nodes from config
+	nodes, err := config.GetJSONObject("nodes")
+	if nodes == nil || err != nil {
+		nodes = make(map[string]interface{})
+		config.SetJSONObject("nodes", nodes)
+	}
+}

@@ -25,7 +25,7 @@ import (
 	"core/nodes"
 	"flag"
 	"fmt"
-	pluginCore "plugins/core"
+	"plugins/core"
 	"plugins/ctls"
 	"plugins/health"
 	"plugins/ldap"
@@ -42,7 +42,7 @@ type Job struct {
 
 func main() {
 
-	fmt.Printf("Git Version %s from %s\n", pluginCore.Gitversion, pluginCore.Gitdate)
+	fmt.Printf("Git Version %s from %s\n", plugincore.Gitversion, plugincore.Gitdate)
 
 	go printMemUsage()
 
@@ -52,10 +52,10 @@ func main() {
 	config.ParseCmdLine()
 
 	// plugins
-	pluginWebclient.ParseCmdLine()
-	pluginCtls.ParseCmdLine()
-	pluginLdap.ParseCmdLine()
-	pluginNFT.ParseCmdLine()
+	pluginwebclient.ParseCmdLine()
+	pluginctls.ParseCmdLine()
+	pluginldap.ParseCmdLine()
+	pluginnft.ParseCmdLine()
 	flag.Parse()
 
 	// ########################## Init ##########################
@@ -64,6 +64,8 @@ func main() {
 
 	config.Init()
 	config.Read()
+
+	nodes.Init()
 
 	msgbus.MsgBusInit()
 	msgbus.PluginsInit()
@@ -77,12 +79,12 @@ func main() {
 		nodes.SaveData(config.NodeName, nodeType, host, port)
 	}
 
-	pluginCore.Init()
-	pluginCtls.Init()
-	pluginWebclient.Init()
-	pluginHealth.Init()
-	pluginLdap.Init()
-	pluginNFT.Init()
+	plugincore.Init()
+	pluginctls.Init()
+	pluginwebclient.Init()
+	pluginhealth.Init()
+	pluginldap.Init()
+	pluginnft.Init()
 
 	for {
 		time.Sleep(time.Second)

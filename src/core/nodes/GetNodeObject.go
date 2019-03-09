@@ -24,7 +24,7 @@ import (
 )
 
 // GetNodeObject return an map from the node with nodeName
-// This function DONT create a new Node inside the json if it dont exist
+// If the node dont exist, it will not be created
 func GetNodeObject(nodeName string) (map[string]interface{}, error) {
 
 	// first, get the nodes from config
