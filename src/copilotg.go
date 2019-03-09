@@ -20,10 +20,12 @@ package main
 
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
+	"core/nodes"
 	"flag"
 	"fmt"
-	"plugins/core"
+	pluginCore "plugins/core"
 	"plugins/ctls"
 	"plugins/health"
 	"plugins/ldap"
@@ -40,12 +42,12 @@ type Job struct {
 
 func main() {
 
-	fmt.Printf("Git Version %s from %s\n", core.Gitversion, core.Gitdate)
+	fmt.Printf("Git Version %s from %s\n", pluginCore.Gitversion, pluginCore.Gitdate)
 
 	go printMemUsage()
 
 	clog.ParseCmdLine()
-	core.ParseCmdLine()
+	config.ParseCmdLine()
 	webclient.ParseCmdLine()
 	ctls.ParseCmdLine()
 	ldapclient.ParseCmdLine()
@@ -53,22 +55,23 @@ func main() {
 	flag.Parse()
 
 	clog.Init()
+
+	config.Init()
+	config.Read()
+
 	msgbus.MsgBusInit()
 	msgbus.PluginsInit()
-
-	core.Init()
-	core.ConfigRead()
 
 	// get my node
 	var host string
 	var nodeType, port int
 	var err error
-	nodeType, host, port, err = core.GetNode(core.NodeName)
+	nodeType, host, port, err = nodes.GetData(config.NodeName)
 	if err != nil {
-		core.SetNode(core.NodeName, nodeType, host, port)
-		core.ConfigSave()
+		nodes.SaveData(config.NodeName, nodeType, host, port)
 	}
 
+	pluginCore.Init()
 	ctls.Init()
 	webclient.Init()
 	health.Init()
