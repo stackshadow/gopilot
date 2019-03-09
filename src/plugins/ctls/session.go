@@ -208,7 +208,7 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 			)
 
 			nodeObject["peerCertSignatureReq"] = fmt.Sprintf("%x", peerCertSignature)
-			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
+			nodes.SaveNodeObject(curSession.remoteNodeName, nodeObject)
 			return certCheckReq
 		}
 
@@ -220,7 +220,7 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 			)
 
 			nodeObject["peerCertSignature"] = fmt.Sprintf("%x", peerCertSignature)
-			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
+			nodes.SaveNodeObject(curSession.remoteNodeName, nodeObject)
 			return certCheckOk
 		}
 
@@ -254,7 +254,7 @@ func (curSession *tlsSession) handleChallange() bool {
 			randomString := base64.StdEncoding.EncodeToString(randomBytes)
 
 			nodeObject["sharedSecret"] = randomString
-			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
+			nodes.SaveNodeObject(curSession.remoteNodeName, nodeObject)
 
 			curSession.logging.Error("CHALLANGE", fmt.Sprintf(
 				"New SharedSecret generated %s, send it to client",
@@ -302,7 +302,7 @@ func (curSession *tlsSession) handleChallange() bool {
 			}
 
 			nodeObject["sharedSecret"] = message.Payload
-			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
+			nodes.SaveNodeObject(curSession.remoteNodeName, nodeObject)
 
 			// answer
 			err = curSession.writeData(

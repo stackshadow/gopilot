@@ -101,13 +101,13 @@ func Init() {
 
 		logging.Info("serverAdress", fmt.Sprintf("Serve an TLS-Server on '%s': ", serverAdress))
 
-		nodes.SetData(config.NodeName, nodes.NodeTypeServer, host, port)
+		nodes.SaveData(config.NodeName, nodes.NodeTypeServer, host, port)
 		os.Exit(0)
 	}
 
 	// create a newNode-Config
 	if newNode != "" {
-		nodes.SetData(newNode, nodes.NodeTypeIncoming, "", 0)
+		nodes.SaveData(newNode, nodes.NodeTypeIncoming, "", 0)
 		os.Exit(0)
 	}
 
@@ -127,7 +127,7 @@ func Init() {
 		}
 
 		// set nodeName
-		nodes.SetData(remoteNodeName, nodes.NodeTypeClient, host, port)
+		nodes.SaveData(remoteNodeName, nodes.NodeTypeClient, host, port)
 		os.Exit(0)
 	}
 
@@ -244,7 +244,7 @@ func peerCertAcceptReqCert(nodeName string) error {
 	// set the peer
 	nodeObject["peerCertSignature"] = nodeObject["peerCertSignatureReq"]
 	delete(nodeObject, "peerCertSignatureReq")
-	nodes.SetNodeObject(nodeName, nodeObject)
+	nodes.SaveNodeObject(nodeName, nodeObject)
 
 	logging.Info("CLIENT", fmt.Sprintf("Accept requested key for node"))
 
@@ -265,7 +265,7 @@ func peerCertReject(nodeName string) error {
 	delete(nodeObject, "sharedSecret")
 
 	logging.Info("CLIENT", fmt.Sprintf("Remove all keys for '%s'", nodeName))
-	nodes.SetNodeObject(nodeName, nodeObject)
+	nodes.SaveNodeObject(nodeName, nodeObject)
 
 	return nil
 }
@@ -382,7 +382,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		nodes.SetData(
+		nodes.SaveData(
 			newNode.Name,
 			nodes.NodeTypeIncoming,
 			newNode.Host,
