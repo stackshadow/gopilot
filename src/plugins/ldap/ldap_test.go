@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -31,7 +31,7 @@ archlinux-ldap:latest
 
 */
 
-package ldapclient
+package pluginLdap
 
 import "testing"
 import "core/clog"

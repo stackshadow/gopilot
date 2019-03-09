@@ -1,4 +1,4 @@
-package ldapclient
+package pluginLdap
 
 import (
 	"errors"

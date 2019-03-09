@@ -16,15 +16,15 @@ You should have received a copy of the GNU Lesser General Public License
 along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-package nft
+package pluginNFT
 
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"plugins/core"
 	"time"
 )
 
@@ -126,9 +126,10 @@ func loadFromConfig() (nftJSONConfig, error) {
 	needToSave := false
 
 	// get the config
-	jsonObject, _ := core.GetJsonObject("nft")
+	var jsonObject map[string]interface{}
+	jsonObject, _ = config.GetJSONObject("nft")
 	if jsonObject == nil {
-		jsonObject, _ = core.NewJsonObject("nft")
+		jsonObject = make(map[string]interface{})
 		needToSave = true
 	}
 
@@ -212,10 +213,10 @@ func loadFromConfig() (nftJSONConfig, error) {
 	return jsonConfig, nil
 }
 
-func (config *nftJSONConfig) saveConfig() error {
+func (nftconfig *nftJSONConfig) saveConfig() error {
 
 	// to json
-	groupObjectBytes, err := json.Marshal(config)
+	groupObjectBytes, err := json.Marshal(nftconfig)
 	if err != nil {
 		logging.Error("Marshal", err.Error())
 		return err
@@ -230,8 +231,9 @@ func (config *nftJSONConfig) saveConfig() error {
 	}
 
 	// save it
-	core.SetJsonObject("nft", jsonObject)
-	core.ConfigSave()
+	config.SetJSONObject("nft", jsonObject)
+	config.Save()
+
 	return nil
 }
 

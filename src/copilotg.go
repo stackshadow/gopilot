@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -46,14 +46,20 @@ func main() {
 
 	go printMemUsage()
 
+	// ########################## Command line parse ##########################
+	// core stuff
 	clog.ParseCmdLine()
 	config.ParseCmdLine()
-	webclient.ParseCmdLine()
-	ctls.ParseCmdLine()
-	ldapclient.ParseCmdLine()
-	nft.ParseCmdLine()
+
+	// plugins
+	pluginWebclient.ParseCmdLine()
+	pluginCtls.ParseCmdLine()
+	pluginLdap.ParseCmdLine()
+	pluginNFT.ParseCmdLine()
 	flag.Parse()
 
+	// ########################## Init ##########################
+	// core
 	clog.Init()
 
 	config.Init()
@@ -72,11 +78,11 @@ func main() {
 	}
 
 	pluginCore.Init()
-	ctls.Init()
-	webclient.Init()
-	health.Init()
-	ldapclient.Init()
-	nft.Init()
+	pluginCtls.Init()
+	pluginWebclient.Init()
+	pluginHealth.Init()
+	pluginLdap.Init()
+	pluginNFT.Init()
 
 	for {
 		time.Sleep(time.Second)

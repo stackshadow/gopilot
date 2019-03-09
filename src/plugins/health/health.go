@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -16,13 +16,13 @@ You should have received a copy of the GNU Lesser General Public License
 along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-package health
+package pluginHealth
 
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
 	"encoding/json"
-	"plugins/core"
 )
 
 type pluginHealth struct {
@@ -56,7 +56,7 @@ func Init() pluginHealth {
 func (curHealth *pluginHealth) onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	// from here: only commands for THIS node
-	if message.NodeTarget != core.NodeName {
+	if message.NodeTarget != config.NodeName {
 		return
 	}
 

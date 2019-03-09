@@ -1,9 +1,9 @@
-package ldapclient
+package pluginLdap
 
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
-	"plugins/core"
 
 	"encoding/json"
 	"flag"
@@ -81,12 +81,12 @@ func Init() {
 }
 
 func GetLdapConfig() ldapConnectionConfig {
-	var jsonObject *map[string]interface{}
+	var jsonObject map[string]interface{}
 
 	// get the config
-	jsonObject, _ = core.GetJsonObject("ldap")
+	jsonObject, _ = config.GetJSONObject("ldap")
 	if jsonObject == nil {
-		jsonObject, _ = core.NewJsonObject("ldap")
+		jsonObject = make(map[string]interface{})
 	}
 
 	// the final struct
@@ -147,8 +147,8 @@ func SetLdapConfig(newConfig ldapConnectionConfig) error {
 	}
 
 	// save it
-	core.SetJsonObject("ldap", jsonObject)
-	core.ConfigSave()
+	config.SetJSONObject("ldap", jsonObject)
+	config.Save()
 	return nil
 }
 

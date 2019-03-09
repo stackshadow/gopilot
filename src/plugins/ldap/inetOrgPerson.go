@@ -1,4 +1,4 @@
-package ldapclient
+package pluginLdap
 
 /*
 RFC: https://tools.ietf.org/html/rfc2798 page 6
