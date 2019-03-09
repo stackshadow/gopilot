@@ -20,260 +20,42 @@ package core
 
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
+	"core/nodes"
 	"encoding/json"
-	"errors"
-	"flag"
+
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
 )
-
-type jsonConfigType struct {
-	Nodes map[string]JsonNodeType `json:"nodes"`
-}
-
-type JsonNodeType struct {
-	Host                 string  `json:"host"`
-	Port                 float64 `json:"port"`
-	Type                 float64 `json:"type"`
-	PeerCertSignatureReq string  `json:"peerCertSignatureReq"`
-	PeerCertSignature    string  `json:"peerCertSignature"`
-}
 
 var logging clog.Logger
 var corePlugin msgbus.Plugin
-var NodeName string
-var ConfigPath string
-var jsonConfig map[string]interface{}
-var jsonConfigNew jsonConfigType
-
-func ParseCmdLine() {
-
-	// nodename
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
-	}
-
-	flag.StringVar(&NodeName, "nodeName", hostname, "Set the name of this node ( normaly the hostname is used )")
-
-	// config path
-	flag.StringVar(&ConfigPath, "configPath", ".", "The base path")
-}
 
 func Init() {
 	logging = clog.New("CORE")
-	logging.Info("HOST", "MyNode: "+NodeName)
+	logging.Info("HOST", "MyNode: "+config.NodeName)
 
 	corePlugin = msgbus.NewPlugin("Core")
 	corePlugin.Register()
 	corePlugin.ListenForGroup("co", onMessage)
-
-	jsonConfig = make(map[string]interface{})
-
-}
-
-const NodeTypeUndefined int = 0 // do nothing with it
-const NodeTypeServer int = 1    // serve an connection
-const NodeTypeClient int = 2    // connect to an server as client
-const NodeTypeIncoming int = 3  // incoming connection from another node
-
-type nodesIterateFct func(JsonNodeType, string, int, string, int) // name, type, host, port
-
-func ConfigRead() {
-
-	// current path
-	ex, err := os.Executable()
-	if err == nil {
-		exPath := filepath.Dir(ex)
-		logging.Debug("CONFIG", "Our current path is '"+exPath+"'")
-	}
-
-	// Open our jsonFile
-	jsonFile, err := os.Open(ConfigPath + "/core.json")
-	if err != nil {
-		logging.Info("CONFIG", err.Error())
-		return
-	}
-	logging.Debug("CONFIG", "Successfully Opened '"+ConfigPath+"/core.json'")
-	defer jsonFile.Close()
-
-	byteValue, _ := ioutil.ReadAll(jsonFile)
-
-	err = json.Unmarshal(byteValue, &jsonConfig)
-
-	err = json.Unmarshal(byteValue, &jsonConfigNew)
-
-	/*
-		if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
-			fmt.Println(jsonNodes)
-		}
-	*/
-	/*
-		for k, v := range jsonConfig {
-			fmt.Println("k:", k, "v:", v)
-
-			if v2, ok := v.(map[string]interface{}); ok {
-				fmt.Println(v2)
-			}
-		}
-		fmt.Println(f)
-	*/
-}
-
-func IterateNodes(nodesIterateFctPt nodesIterateFct) {
-
-	for nodeName, jsonNode := range jsonConfigNew.Nodes {
-
-		var nodeType int = int(jsonNode.Type)
-
-		nodeHost := "127.0.0.1"
-		if jsonNode.Host != "" {
-			nodeHost = jsonNode.Host
-		}
-
-		var nodePort int = 4444
-		if jsonNode.Port != 0 {
-			nodePort = int(jsonNode.Port)
-		}
-
-		nodesIterateFctPt(jsonNode, nodeName, nodeType, nodeHost, nodePort)
-	}
-
-}
-
-// This function return an map from the node with nodeName
-// This function DONT create a new Node inside the json if it dont exist
-func GetNodeObject(nodeName string) (*map[string]interface{}, error) {
-
-	var jsonNode map[string]interface{}
-
-	if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
-		if jsonNodes[nodeName] != nil {
-			jsonNode = jsonNodes[nodeName].(map[string]interface{})
-			return &jsonNode, nil
-		}
-	}
-
-	return nil, errors.New(fmt.Sprintf("Node '%s' not found", nodeName))
-}
-
-func GetNode(nodeName string) (int, string, int, error) {
-
-	if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
-		if jsonNodes[nodeName] != nil {
-
-			jsonNode := jsonNodes[nodeName].(map[string]interface{})
-
-			nodeType := NodeTypeUndefined
-			if jsonNode["type"] != nil {
-				nodeType = int(jsonNode["type"].(float64))
-			}
-
-			nodeHost := "127.0.0.1"
-			if jsonNode["host"] != nil {
-				nodeHost = jsonNode["host"].(string)
-			}
-
-			nodePort := 4444
-			if jsonNode["port"] != nil {
-				nodePort = int(jsonNode["port"].(float64))
-			}
-
-			return nodeType, nodeHost, nodePort, nil
-		}
-	}
-
-	return NodeTypeUndefined, "127.0.0.1", 4444, errors.New("Node not found")
-}
-
-func SetNode(nodeName string, nodeType int, host string, port int) {
-
-	var jsonNodes map[string]interface{}
-	var jsonNode map[string]interface{}
-
-	if jsonConfig["nodes"] != nil {
-		jsonNodes = jsonConfig["nodes"].(map[string]interface{})
-
-		if jsonNodes[nodeName] != nil {
-			jsonNode = jsonNodes[nodeName].(map[string]interface{})
-		} else {
-			jsonNode = make(map[string]interface{})
-			jsonNodes[nodeName] = jsonNode
-		}
-	} else {
-		jsonNodes = make(map[string]interface{})
-		jsonConfig["nodes"] = jsonNodes
-		jsonNode = make(map[string]interface{})
-		jsonNodes[nodeName] = jsonNode
-	}
-
-	jsonNode["type"] = nodeType
-	jsonNode["host"] = host
-	jsonNode["port"] = port
-
-	fmt.Println("jsonConfig:", jsonConfig)
-}
-
-func DeleteNode(nodeName string) {
-
-	if jsonConfig["nodes"] == nil {
-		return
-	}
-
-	jsonNodes := jsonConfig["nodes"].(map[string]interface{})
-	delete(jsonNodes, nodeName)
-
-}
-
-func GetJsonObject(name string) (*map[string]interface{}, error) {
-
-	if jsonObject, ok := jsonConfig[name].(map[string]interface{}); ok {
-		return &jsonObject, nil
-	}
-
-	return nil, errors.New(fmt.Sprintf("No Object found with name '%s'", name))
-}
-
-func NewJsonObject(name string) (*map[string]interface{}, error) {
-	var jsonNode = make(map[string]interface{})
-
-	jsonConfig[name] = jsonNode
-
-	return &jsonNode, nil
-}
-
-func SetJsonObject(name string, jsonNode map[string]interface{}) {
-	jsonConfig[name] = jsonNode
-}
-
-func ConfigSave() {
-	byteValue, _ := json.MarshalIndent(jsonConfig, "", "    ")
-	err := ioutil.WriteFile(ConfigPath+"/core.json", byteValue, 0644)
-	if err != nil {
-		logging.Error("CONFIG", err.Error())
-		os.Exit(-1)
-	}
 }
 
 func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	// from here: all nodes can request these
 	if command == "nodeNameGet" {
-		message.Answer(&corePlugin, "nodeName", NodeName)
+		message.Answer(&corePlugin, "nodeName", config.NodeName)
 		return
 	}
 
 	// from here: only commands for THIS node
-	if message.NodeTarget != NodeName {
+	if message.NodeTarget != config.NodeName {
 		return
 	}
 
 	if command == "getNodes" {
 
-		IterateNodes(func(jsonNode JsonNodeType, nodeName string, nodeType int, host string, port int) {
+		nodes.IterateNodes(func(jsonNode nodes.JSONNodeType, nodeName string, nodeType int, host string, port int) {
 
 			var requested bool
 			var accepted bool
@@ -317,47 +99,10 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		if jsonNodes, ok := jsonConfig["nodes"].(map[string]interface{}); ok {
-
-			for nodeName, jsonNodeInterface := range jsonNewNodes {
-				if jsonNode, ok := jsonNodeInterface.(map[string]interface{}); ok {
-					jsonNodes[nodeName] = jsonNode
-					message.Answer(&corePlugin, "nodeSaveOk", nodeName)
-				}
-			}
-
-		}
-
-		ConfigSave()
-
-		IterateNodes(func(jsonNode JsonNodeType, nodeName string, nodeType int, host string, port int) {
-
-			var requested bool
-			var accepted bool
-
-			if jsonNode.PeerCertSignatureReq != "" {
-				requested = true
-				accepted = false
-			}
-			if jsonNode.PeerCertSignature != "" {
-				requested = false
-				accepted = true
-			}
-
-			message.Answer(&corePlugin, "node",
-				fmt.Sprintf(
-					"{\"%s\":{ \"host\":\"%s\", \"port\":%d, \"type\":%d, \"req\": %t, \"acc\": %t } }",
-					nodeName, host, port, nodeType, requested, accepted,
-				),
-			)
-
-		})
-		message.Answer(&corePlugin, "nodeEnd", "")
-
 	}
 
 	if command == "nodeDelete" {
-		DeleteNode(payload)
+		nodes.Delete(payload)
 		message.Answer(&corePlugin, "nodeDeleteOk", payload)
 		return
 	}
