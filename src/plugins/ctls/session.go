@@ -21,12 +21,13 @@ package ctls
 import (
 	"bufio"
 	"core/clog"
+	"core/config"
 	"core/msgbus"
+	"core/nodes"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net"
-	"plugins/core"
 	"strings"
 )
 
@@ -138,7 +139,7 @@ func (curSession *tlsSession) handleClient() {
 	// check certificate
 	peerCertCheckResult := curSession.peerCertCheck(peerCert.Signature)
 	if peerCertCheckResult == certCheckReq {
-		curSession.plugin.Publish(core.NodeName, core.NodeName, "tls", "nodeReq", peerCert.Subject.CommonName)
+		curSession.plugin.Publish(config.NodeName, config.NodeName, "tls", "nodeReq", peerCert.Subject.CommonName)
 		return
 	}
 	if peerCertCheckResult != certCheckOk {
@@ -152,8 +153,8 @@ func (curSession *tlsSession) handleClient() {
 	}
 
 	// successfully connected
-	curSession.plugin.Publish(core.NodeName, core.NodeName, "tls", "nodeConnected", curSession.remoteNodeName)
-	defer curSession.plugin.Publish(core.NodeName, core.NodeName, "tls", "nodeDisconnect", curSession.remoteNodeName)
+	curSession.plugin.Publish(config.NodeName, config.NodeName, "tls", "nodeConnected", curSession.remoteNodeName)
+	defer curSession.plugin.Publish(config.NodeName, config.NodeName, "tls", "nodeDisconnect", curSession.remoteNodeName)
 	curSession.plugin.ListenForGroup("", curSession.onMessage)
 
 	r := bufio.NewReader(curSession.conn)
@@ -188,7 +189,7 @@ const certCheckReq int = 1
 
 func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 
-	nodeObject, err := core.GetNodeObject(curSession.remoteNodeName)
+	nodeObject, err := nodes.GetNodeObject(curSession.remoteNodeName)
 	if err != nil {
 		logging.Error("CLIENT", err.Error())
 		return certCheckErr
@@ -197,36 +198,36 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 	// no cert signature present
 	// as server we save it to
 	// as client we "cherry pick"
-	if (*nodeObject)["peerCertSignature"] == nil {
+	if nodeObject["peerCertSignature"] == nil {
 
-		if curSession.nodeType == core.NodeTypeIncoming {
+		if curSession.nodeType == nodes.NodeTypeIncoming {
 
 			logging.Info("CLIENT", fmt.Sprintf(
 				"Peer Certificate missing for '%s', save it to requested keys. Signature: %x",
 				curSession.remoteNodeName, peerCertSignature),
 			)
 
-			(*nodeObject)["peerCertSignatureReq"] = fmt.Sprintf("%x", peerCertSignature)
-			core.ConfigSave()
+			nodeObject["peerCertSignatureReq"] = fmt.Sprintf("%x", peerCertSignature)
+			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
 			return certCheckReq
 		}
 
-		if curSession.nodeType == core.NodeTypeClient {
+		if curSession.nodeType == nodes.NodeTypeClient {
 
 			logging.Info("CLIENT", fmt.Sprintf(
 				"Cherry pick Signature: %x for '%s'",
 				peerCertSignature, curSession.remoteNodeName),
 			)
 
-			(*nodeObject)["peerCertSignature"] = fmt.Sprintf("%x", peerCertSignature)
-			core.ConfigSave()
+			nodeObject["peerCertSignature"] = fmt.Sprintf("%x", peerCertSignature)
+			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
 			return certCheckOk
 		}
 
 	}
 
 	// cert of remote-node is present, check it against tls-cert
-	if (*nodeObject)["peerCertSignature"] != fmt.Sprintf("%x", peerCertSignature) {
+	if nodeObject["peerCertSignature"] != fmt.Sprintf("%x", peerCertSignature) {
 		logging.Error("CLIENT", fmt.Sprintf("Peer Certificate '%x' not accepted for this node", peerCertSignature))
 		return certCheckMisMatch
 	}
@@ -237,14 +238,14 @@ func (curSession *tlsSession) peerCertCheck(peerCertSignature []byte) int {
 
 func (curSession *tlsSession) handleChallange() bool {
 
-	nodeObject, err := core.GetNodeObject(curSession.remoteNodeName)
+	nodeObject, err := nodes.GetNodeObject(curSession.remoteNodeName)
 	bufReader := bufio.NewReader(curSession.conn)
 
 	// no shared secret
-	if (*nodeObject)["sharedSecret"] == nil {
+	if nodeObject["sharedSecret"] == nil {
 
 		// is this an incoming connection -> send "newSecret" command
-		if curSession.nodeType == core.NodeTypeIncoming {
+		if curSession.nodeType == nodes.NodeTypeIncoming {
 
 			randomBytes, err := GenerateRandomBytes(32)
 			if err != nil {
@@ -252,8 +253,8 @@ func (curSession *tlsSession) handleChallange() bool {
 			}
 			randomString := base64.StdEncoding.EncodeToString(randomBytes)
 
-			(*nodeObject)["sharedSecret"] = randomString
-			core.ConfigSave()
+			nodeObject["sharedSecret"] = randomString
+			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
 
 			curSession.logging.Error("CHALLANGE", fmt.Sprintf(
 				"New SharedSecret generated %s, send it to client",
@@ -261,7 +262,7 @@ func (curSession *tlsSession) handleChallange() bool {
 			))
 
 			err = curSession.writeData(
-				core.NodeName, curSession.remoteNodeName,
+				config.NodeName, curSession.remoteNodeName,
 				"challange", "newSecret", randomString,
 			)
 			if err != nil {
@@ -285,7 +286,7 @@ func (curSession *tlsSession) handleChallange() bool {
 		}
 
 		// we wait for "newSecret" command
-		if curSession.nodeType == core.NodeTypeClient {
+		if curSession.nodeType == nodes.NodeTypeClient {
 
 			// wait for newSecret
 			message, err := curSession.readMsg(bufReader)
@@ -300,12 +301,12 @@ func (curSession *tlsSession) handleChallange() bool {
 				return false
 			}
 
-			(*nodeObject)["sharedSecret"] = message.Payload
-			core.ConfigSave()
+			nodeObject["sharedSecret"] = message.Payload
+			nodes.SetNodeObject(curSession.remoteNodeName, nodeObject)
 
 			// answer
 			err = curSession.writeData(
-				core.NodeName, curSession.remoteNodeName,
+				config.NodeName, curSession.remoteNodeName,
 				"challange", "newSecretSaved", "",
 			)
 			if err != nil {
@@ -319,7 +320,7 @@ func (curSession *tlsSession) handleChallange() bool {
 
 	// get shared secret
 	var sharedSecret string
-	sharedSecret = (*nodeObject)["sharedSecret"].(string)
+	sharedSecret = nodeObject["sharedSecret"].(string)
 
 	// create random bytes and remember
 	randomMessageBytes, err := GenerateRandomBytes(32)
@@ -329,7 +330,7 @@ func (curSession *tlsSession) handleChallange() bool {
 	curSession.myChallange = base64.StdEncoding.EncodeToString(randomMessageBytes)
 
 	err = curSession.writeData(
-		core.NodeName, curSession.remoteNodeName,
+		config.NodeName, curSession.remoteNodeName,
 		"challange", "challangeRequest", curSession.myChallange,
 	)
 	if err != nil {
@@ -353,7 +354,7 @@ func (curSession *tlsSession) handleChallange() bool {
 			challangeResponse := ComputeHmac256(message.Payload, sharedSecret)
 
 			err := curSession.writeData(
-				core.NodeName, curSession.remoteNodeName,
+				config.NodeName, curSession.remoteNodeName,
 				"challange", "challangeResponse", challangeResponse,
 			)
 			if err != nil {
@@ -394,7 +395,7 @@ func (curSession *tlsSession) handleChallange() bool {
 func (curSession *tlsSession) onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	// messages to us, will not sended
-	if message.NodeTarget == core.NodeName {
+	if message.NodeTarget == config.NodeName {
 		curSession.logging.Debug("onMessage", fmt.Sprintf(
 			"I will not send out messages, which are dedicated to me",
 		))

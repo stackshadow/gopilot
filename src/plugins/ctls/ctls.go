@@ -37,7 +37,9 @@ openssl x509 -noout -text -in cerfile.cer
 */
 import (
 	"core/clog"
+	"core/config"
 	"core/msgbus"
+	"core/nodes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -50,7 +52,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"plugins/core"
 	"strconv"
 	"time"
 )
@@ -82,7 +83,7 @@ func Init() {
 	logging = clog.New("TLS")
 
 	// create key pair
-	CreateKeyPair(core.NodeName)
+	CreateKeyPair(config.NodeName)
 
 	// enable the tls-server
 	if serverAdress != "" {
@@ -100,16 +101,13 @@ func Init() {
 
 		logging.Info("serverAdress", fmt.Sprintf("Serve an TLS-Server on '%s': ", serverAdress))
 
-		core.SetNode(core.NodeName, core.NodeTypeServer, host, port)
-		core.ConfigSave()
+		nodes.SetData(config.NodeName, nodes.NodeTypeServer, host, port)
 		os.Exit(0)
 	}
 
 	// create a newNode-Config
 	if newNode != "" {
-		core.DeleteNode(newNode)
-		core.SetNode(newNode, core.NodeTypeIncoming, "", 0)
-		core.ConfigSave()
+		nodes.SetData(newNode, nodes.NodeTypeIncoming, "", 0)
 		os.Exit(0)
 	}
 
@@ -129,13 +127,7 @@ func Init() {
 		}
 
 		// set nodeName
-		core.SetNode(remoteNodeName, core.NodeTypeClient, host, port)
-		_, err = core.GetNodeObject(remoteNodeName)
-		if err != nil {
-			os.Exit(-1)
-		}
-
-		core.ConfigSave()
+		nodes.SetData(remoteNodeName, nodes.NodeTypeClient, host, port)
 		os.Exit(0)
 	}
 
@@ -157,13 +149,13 @@ func Init() {
 	plugin.ListenForGroup("tls", onMessage)
 
 	// okay, get server-config
-	core.IterateNodes(func(jsonNode core.JsonNodeType, nodeName string, nodeType int, host string, port int) {
+	nodes.IterateNodes(func(jsonNode nodes.JSONNodeType, nodeName string, nodeType int, host string, port int) {
 
-		if nodeType == core.NodeTypeServer {
+		if nodeType == nodes.NodeTypeServer {
 			go serve(fmt.Sprintf("%s:%d", host, port))
 		}
 
-		if nodeType == core.NodeTypeClient {
+		if nodeType == nodes.NodeTypeClient {
 			go connect(fmt.Sprintf("%s:%d", host, port))
 		}
 	})
@@ -227,14 +219,14 @@ func ComputeHmac256(message string, secret string) string {
 // Accept requested Cert for an node
 func peerCertAcceptReqCert(nodeName string) error {
 
-	nodeObject, err := core.GetNodeObject(nodeName)
+	nodeObject, err := nodes.GetNodeObject(nodeName)
 	if err != nil {
 		logging.Error("CLIENT", err.Error())
 		return err
 	}
 
 	// already exist, do nothing
-	if (*nodeObject)["peerCertSignature"] != nil {
+	if nodeObject["peerCertSignature"] != nil {
 		logging.Error("CLIENT", fmt.Sprintf(
 			"Can not overwrite an already accepted key",
 		))
@@ -242,16 +234,17 @@ func peerCertAcceptReqCert(nodeName string) error {
 	}
 
 	// no req-key exist, do nothing
-	if (*nodeObject)["peerCertSignatureReq"] == nil {
+	if nodeObject["peerCertSignatureReq"] == nil {
 		logging.Error("CLIENT", fmt.Sprintf(
 			"No key requested",
 		))
 		return errors.New("No key requested")
 	}
 
-	(*nodeObject)["peerCertSignature"] = (*nodeObject)["peerCertSignatureReq"]
-	delete(*nodeObject, "peerCertSignatureReq")
-	core.ConfigSave()
+	// set the peer
+	nodeObject["peerCertSignature"] = nodeObject["peerCertSignatureReq"]
+	delete(nodeObject, "peerCertSignatureReq")
+	nodes.SetNodeObject(nodeName, nodeObject)
 
 	logging.Info("CLIENT", fmt.Sprintf("Accept requested key for node"))
 
@@ -261,25 +254,25 @@ func peerCertAcceptReqCert(nodeName string) error {
 // delete Certificate-Signatures and shared secret for this node
 func peerCertReject(nodeName string) error {
 
-	nodeObject, err := core.GetNodeObject(nodeName)
+	nodeObject, err := nodes.GetNodeObject(nodeName)
 	if err != nil {
 		logging.Error("CLIENT", err.Error())
 		return err
 	}
 
-	delete(*nodeObject, "peerCertSignature")
-	delete(*nodeObject, "peerCertSignatureReq")
-	delete(*nodeObject, "sharedSecret")
+	delete(nodeObject, "peerCertSignature")
+	delete(nodeObject, "peerCertSignatureReq")
+	delete(nodeObject, "sharedSecret")
 
 	logging.Info("CLIENT", fmt.Sprintf("Remove all keys for '%s'", nodeName))
-	core.ConfigSave()
+	nodes.SetNodeObject(nodeName, nodeObject)
 
 	return nil
 }
 
 func serve(serverString string) {
 
-	cer, err := tls.LoadX509KeyPair(core.NodeName+".crt", core.NodeName+".key")
+	cer, err := tls.LoadX509KeyPair(config.NodeName+".crt", config.NodeName+".key")
 	if err != nil {
 		logging.Error("SERVER", err.Error())
 		return
@@ -308,7 +301,7 @@ func serve(serverString string) {
 
 		go NewSession(
 			fmt.Sprintf("%d", sessionNo),
-			core.NodeTypeIncoming, conn,
+			nodes.NodeTypeIncoming, conn,
 		)
 
 		sessionNo++
@@ -318,7 +311,7 @@ func serve(serverString string) {
 
 func connect(clientString string) {
 
-	cer, err := tls.LoadX509KeyPair(core.NodeName+".crt", core.NodeName+".key")
+	cer, err := tls.LoadX509KeyPair(config.NodeName+".crt", config.NodeName+".key")
 	if err != nil {
 		logging.Error("CONNECT", err.Error())
 		return
@@ -341,7 +334,7 @@ func connect(clientString string) {
 
 		NewSession(
 			fmt.Sprintf("%d", sessionNo),
-			core.NodeTypeClient, conn,
+			nodes.NodeTypeClient, conn,
 		)
 
 		conn.Close()
@@ -389,9 +382,9 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			return
 		}
 
-		core.SetNode(
+		nodes.SetData(
 			newNode.Name,
-			core.NodeTypeIncoming,
+			nodes.NodeTypeIncoming,
 			newNode.Host,
 			newNode.Port,
 		)
@@ -401,7 +394,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 	}
 
 	if command == "nodeDelete" {
-		core.DeleteNode(payload)
+		nodes.Delete(payload)
 		message.Answer(&plugin, "nodeDeleteOk", payload)
 		return
 	}
