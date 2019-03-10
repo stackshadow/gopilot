@@ -29,6 +29,7 @@ type nftRule struct {
 	Enabled   bool       `json:"enabled"`
 	Policy    nftPolicy  `json:"policy"`
 	Statement [][]string `json:"statements"`
+	Comment   string     `json:"comment"`
 }
 
 func (chain *nftChain) ruleNew(policy nftPolicy) *nftRule {

@@ -51,6 +51,7 @@ type nftJSONRule struct {
 	Enabled   bool       `json:"enabled"`
 	Policy    nftPolicy  `json:"policy"`
 	Statement [][]string `json:"statements"`
+	Comment   string     `json:"comment"`
 }
 
 var nftConfig nftJSONConfig
@@ -379,6 +380,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 					jsonRule.Enabled = rule.Enabled
 					jsonRule.Policy = rule.Policy
 					jsonRule.Statement = rule.Statement
+					jsonRule.Comment = rule.Comment
 
 					groupObjectBytes, err := json.Marshal(jsonRule)
 					if err != nil {
@@ -418,6 +420,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 				newNftRule.Enabled = jsonRule.Enabled
 				newNftRule.Policy = jsonRule.Policy
 				newNftRule.Statement = jsonRule.Statement
+				newNftRule.Comment = jsonRule.Comment
 
 				// position is not in this chain
 				if jsonRule.Position > len(chain.Rules) {
