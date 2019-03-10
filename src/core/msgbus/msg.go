@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -25,9 +25,10 @@ import (
 	"sync"
 )
 
+// Msg represent a single message inside the bus
 type Msg struct {
-	id            int    `json:"-"`
-	pluginNameSrc string `json:"-"`
+	id            int
+	pluginNameSrc string
 
 	NodeSource string `json:"s"`
 	NodeTarget string `json:"t"`
@@ -36,7 +37,7 @@ type Msg struct {
 	Payload    string `json:"v"`
 }
 
-type MsgListener struct {
+type msgListener struct {
 	pluginName string
 	target     string // can be ""
 	group      string // can be ""
@@ -46,7 +47,7 @@ type MsgListener struct {
 
 var messageList chan Msg
 var messageListLastID int
-var messageListeners []MsgListener
+var messageListeners []msgListener
 var messageListenersMutex sync.Mutex
 
 // callbacks
@@ -66,7 +67,7 @@ func MsgBusInit() {
 func ListenForGroup(pluginName string, group string, onMessageFP onMessageFct) {
 
 	// create new plugin and append it
-	newListener := MsgListener{
+	newListener := msgListener{
 		pluginName: pluginName,
 		target:     "",
 		group:      group,
@@ -89,7 +90,7 @@ func ListenForGroup(pluginName string, group string, onMessageFP onMessageFct) {
 func ListenNoMorePlugin(pluginName string) {
 
 	messageListenersMutex.Lock()
-	var NewMessageListeners []MsgListener
+	var NewMessageListeners []msgListener
 
 	for listenerIndex, curListener := range messageListeners {
 		//curListener := messageListeners[listenerIndex]
