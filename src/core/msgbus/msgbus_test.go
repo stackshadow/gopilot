@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2018 by Martin Langlotz aka stackshadow
+Copyright (C) 2019 by Martin Langlotz aka stackshadow
 
 This file is part of gopilot, an rewrite of the copilot-project in go
 
@@ -15,7 +15,6 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with gopilot.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 package msgbus
 
 import "testing"
@@ -27,11 +26,14 @@ import "os"
 func TestInit(t *testing.T) {
 
 	MsgBusInit()
-	Init()
 	clog.EnableDebug()
+
+	t.Run("Test register/derefister", RegisterDeregister)
+	t.Run("Test json message", jsonMessage)
+	t.Run("Test listener", pluginListener)
 }
 
-func TestRegisterDeregister(t *testing.T) {
+func RegisterDeregister(t *testing.T) {
 
 	// this test, register an listener, which should ONLY be called once,
 	// because all listeners will be deleted after
@@ -61,7 +63,15 @@ func TestRegisterDeregister(t *testing.T) {
 	// send a message ( this now should be fired only once )
 	Publish("DUMMY", "sourceNode", "targetNode", "group", "command", "payload")
 
-	time.Sleep(time.Second * 2)
+	// remove the last one
+	ListenNoMorePlugin("PLUGIN B")
+	if ListenersCount() != 0 {
+		t.Error("There should be 0 listeners...")
+		t.FailNow()
+		return
+	}
+
+	time.Sleep(time.Second * 1)
 }
 
 var onlyOnSingleMessageCount int = 0
@@ -73,11 +83,11 @@ func onlyOnSingleMessage(message *Msg, group, command, payload string) {
 	onlyOnSingleMessageCount++
 }
 
-func aTestJsonMessage(t *testing.T) {
+func jsonMessage(t *testing.T) {
 
 	newMessage := Msg{
-		id:        1,
-		pluginSrc: nil,
+		id:            1,
+		pluginNameSrc: "test",
 
 		NodeSource: "source",
 		NodeTarget: "target",
@@ -115,7 +125,7 @@ func aTestJsonMessage(t *testing.T) {
 
 }
 
-func aTestPluginListener(t *testing.T) {
+func pluginListener(t *testing.T) {
 
 	var firstPluginID, secondPluginID, thirdPluginID Plugin
 
@@ -130,14 +140,28 @@ func aTestPluginListener(t *testing.T) {
 	firstPluginID.ListenForGroup("groupa", testOnMessage)
 	secondPluginID.ListenForGroup("groupa", testOnMessage)
 	thirdPluginID.ListenForGroup("groupa", testOnMessage)
+	onlyOnSingleMessageCount = 0
+	thirdPluginID.ListenForGroup("groupb", onlyOnSingleMessage)
+	thirdPluginID.ListenForGroup("groupx", onNeverMessage)
 
 	firstPluginID.Publish("me", "other", "groupa", "ping", "nopayload")
 	firstPluginID.Publish("me", "other", "groupa", "ping", "nopayload")
-	time.Sleep(time.Second * 2)
+	firstPluginID.Publish("me", "other", "groupb", "ping", "nopayload")
+	time.Sleep(time.Second * 1)
+
+	// not 6, because we won't send the message to ourselfe
+	if testOnMessageCounter != 4 {
+		t.Error("The message should be fired 4 times, but doenst...")
+		t.FailNow()
+		return
+	}
 }
+
+var testOnMessageCounter = 0
 
 func testOnMessage(message *Msg, group, command, payload string) {
 	fmt.Println("GROUP: ", group, " CMD: ", command, " PAYLOAD: ", payload)
+	testOnMessageCounter++
 }
 
 func onMultipleMessage(message *Msg, group, command, payload string) {
