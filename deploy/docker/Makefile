@@ -3,6 +3,7 @@
 docker-build-context.tar.gz:
 	tar \
 	-C ../../ \
+	--exclude docker-build-context.tar.gz \
 	-caf $@ \
 	./deploy/docker \
 	./src/core \
