@@ -24,7 +24,7 @@ import (
 )
 
 // IterateFct is a callback-function for IterateNodes()
-type IterateFct func(JSONNodeType, string, int, string, int) // name, type, host, port
+type IterateFct func(string, JSONNodeType, map[string]interface{}) // name, type, host, port
 
 // IterateNodes call for every node in the config the NodesIterateFct
 func IterateNodes(nodesIterateFctPt IterateFct) {
@@ -39,24 +39,20 @@ func IterateNodes(nodesIterateFctPt IterateFct) {
 
 		// convert it to struct
 		var jsonNode JSONNodeType
-		err = mapstructure.Decode(jsonNodeInterface, jsonNode)
+		err = mapstructure.Decode(jsonNodeInterface, &jsonNode)
 		if err != nil {
 			continue
 		}
 
-		var nodeType = int(jsonNode.Type)
-
-		nodeHost := "127.0.0.1"
-		if jsonNode.Host != "" {
-			nodeHost = jsonNode.Host
+		if jsonNode.Host == "" {
+			jsonNode.Host = "127.0.0.1"
 		}
 
-		var nodePort = 4444
-		if jsonNode.Port != 0 {
-			nodePort = int(jsonNode.Port)
+		if jsonNode.Port == 0 {
+			jsonNode.Port = 4444
 		}
 
-		nodesIterateFctPt(jsonNode, nodeName, nodeType, nodeHost, nodePort)
+		nodesIterateFctPt(nodeName, jsonNode, jsonNodeInterface.(map[string]interface{}))
 	}
 
 }

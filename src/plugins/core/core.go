@@ -55,16 +55,16 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 
 	if command == "getNodes" {
 
-		nodes.IterateNodes(func(jsonNode nodes.JSONNodeType, nodeName string, nodeType int, host string, port int) {
+		nodes.IterateNodes(func(nodeName string, jsonNode nodes.JSONNodeType, jsonNodeInterfaced map[string]interface{}) {
 
 			var requested bool
 			var accepted bool
 
-			if jsonNode.PeerCertSignatureReq != "" {
+			if jsonNodeInterfaced["PeerCertSignatureReq"] != "" {
 				requested = true
 				accepted = false
 			}
-			if jsonNode.PeerCertSignature != "" {
+			if jsonNodeInterfaced["PeerCertSignature"] != "" {
 				requested = false
 				accepted = true
 			}
@@ -72,7 +72,7 @@ func onMessage(message *msgbus.Msg, group, command, payload string) {
 			message.Answer(&corePlugin, "node",
 				fmt.Sprintf(
 					"{\"%s\":{ \"host\":\"%s\", \"port\":%d, \"type\":%d, \"req\": %t, \"acc\": %t } }",
-					nodeName, host, port, nodeType, requested, accepted,
+					nodeName, jsonNode.Host, jsonNode.Port, jsonNode.Type, requested, accepted,
 				),
 			)
 
