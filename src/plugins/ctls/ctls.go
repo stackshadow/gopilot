@@ -69,6 +69,7 @@ var plugin msgbus.Plugin
 var logging clog.Logger
 var sessionNo int
 
+// ParseCmdLine read the command line parameter and save the values to local vars
 func ParseCmdLine() {
 	flag.StringVar(&serverAdress, "serverAdress", "", "hostname:port - Enable the TLS-Server on hostname with port")
 	flag.StringVar(&newNode, "newNode", "", "name - Use this on the server to allow an node for an incoming connection")
@@ -78,6 +79,7 @@ func ParseCmdLine() {
 	flag.StringVar(&remoteRejectNode, "rejectNode", "", "nodename - We forget all keys and secrets for this nodeName")
 }
 
+// Init the ctls-plugin
 func Init() {
 
 	logging = clog.New("TLS")
@@ -102,13 +104,11 @@ func Init() {
 		logging.Info("serverAdress", fmt.Sprintf("Serve an TLS-Server on '%s': ", serverAdress))
 
 		nodes.SaveData(config.NodeName, nodes.NodeTypeServer, host, port)
-		os.Exit(0)
 	}
 
 	// create a newNode-Config
 	if newNode != "" {
 		nodes.SaveData(newNode, nodes.NodeTypeIncoming, "", 0)
-		os.Exit(0)
 	}
 
 	// we connect to an remote-node
@@ -128,7 +128,6 @@ func Init() {
 
 		// set nodeName
 		nodes.SaveData(remoteNodeName, nodes.NodeTypeClient, host, port)
-		os.Exit(0)
 	}
 
 	// we accept an requested node
@@ -143,30 +142,45 @@ func Init() {
 		os.Exit(0)
 	}
 
+	// because we can changed the nodes prev, reload config
+	config.Read()
+
 	// register plugin on messagebus
 	plugin = msgbus.NewPlugin("TLS")
 	plugin.Register()
 	plugin.ListenForGroup("tls", onMessage)
 
 	// okay, get server-config
-	nodes.IterateNodes(func(jsonNode nodes.JSONNodeType, nodeName string, nodeType int, host string, port int) {
+	nodes.IterateNodes(func(nodeName string, jsonNode nodes.JSONNodeType, jsonNodeInterfaced map[string]interface{}) {
 
-		if nodeType == nodes.NodeTypeServer {
-			go serve(fmt.Sprintf("%s:%d", host, port))
+		if int(jsonNode.Type) == nodes.NodeTypeServer {
+			go serve(fmt.Sprintf("%s:%d", jsonNode.Host, int(jsonNode.Port)))
 		}
 
-		if nodeType == nodes.NodeTypeClient {
-			go connect(fmt.Sprintf("%s:%d", host, port))
+		if int(jsonNode.Type) == nodes.NodeTypeClient {
+			go connect(fmt.Sprintf("%s:%d", jsonNode.Host, int(jsonNode.Port)))
 		}
 	})
 
 }
 
+// return the key and crt
+func getKeyPairPath(nodeName string) (string, string) {
+
+	key := config.ConfigPath + "/" + nodeName + ".key"
+	cert := config.ConfigPath + "/" + nodeName + ".crt"
+
+	return key, cert
+}
+
+// CreateKeyPair create a certificate and key inside the configpath
 func CreateKeyPair(nodeName string) error {
 
-	if _, err := os.Stat(nodeName + ".key"); os.IsNotExist(err) {
+	keyFileName, certFileName := getKeyPairPath(config.NodeName)
+
+	if _, err := os.Stat(keyFileName); os.IsNotExist(err) {
 		cmdKey := exec.Command("openssl", "ecparam", "-genkey", "-name", "secp384r1",
-			"-out", nodeName+".key",
+			"-out", keyFileName,
 		)
 		logging.Info("CREATEKEY", fmt.Sprintf("Create %s.key", nodeName))
 		errKey := cmdKey.Run()
@@ -176,10 +190,10 @@ func CreateKeyPair(nodeName string) error {
 		}
 	}
 
-	if _, err := os.Stat(nodeName + ".crt"); os.IsNotExist(err) {
+	if _, err := os.Stat(certFileName); os.IsNotExist(err) {
 		cmdCRT := exec.Command("openssl", "req", "-new", "-x509", "-sha256",
-			"-key", nodeName+".key",
-			"-out", nodeName+".crt",
+			"-key", keyFileName,
+			"-out", certFileName,
 			"-days", "3650",
 			"-subj", "/C=DE/ST=UNKNOWN/L=UNKNOWN/O=COPILOTD/OU=DAEMON/CN="+nodeName,
 		)
@@ -209,6 +223,7 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
+// ComputeHmac256 will return an sha256 HMAC-hash as base64
 func ComputeHmac256(message string, secret string) string {
 	key := []byte(secret)
 	h := hmac.New(sha256.New, key)
@@ -272,7 +287,12 @@ func peerCertReject(nodeName string) error {
 
 func serve(serverString string) {
 
-	cer, err := tls.LoadX509KeyPair(config.NodeName+".crt", config.NodeName+".key")
+	keyFileName, certFileName := getKeyPairPath(config.NodeName)
+
+	cer, err := tls.LoadX509KeyPair(
+		certFileName,
+		keyFileName,
+	)
 	if err != nil {
 		logging.Error("SERVER", err.Error())
 		return
@@ -311,7 +331,12 @@ func serve(serverString string) {
 
 func connect(clientString string) {
 
-	cer, err := tls.LoadX509KeyPair(config.NodeName+".crt", config.NodeName+".key")
+	keyFileName, certFileName := getKeyPairPath(config.NodeName)
+
+	cer, err := tls.LoadX509KeyPair(
+		certFileName,
+		keyFileName,
+	)
 	if err != nil {
 		logging.Error("CONNECT", err.Error())
 		return

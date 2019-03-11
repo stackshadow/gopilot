@@ -125,6 +125,12 @@ func (curSession *tlsSession) handleClient() {
 	curSession.logging.Debug("handleClient", fmt.Sprintf("HandshakeComplete: %t", state.HandshakeComplete))
 	curSession.logging.Debug("handleClient", fmt.Sprintf("DidResume: %t", state.DidResume))
 	curSession.logging.Debug("handleClient", fmt.Sprintf("CipherSuite: %x", state.CipherSuite))
+	if curSession.nodeType == nodes.NodeTypeIncoming {
+		curSession.logging.Debug("handleClient", "Type: Incoming Connection")
+	}
+	if curSession.nodeType == nodes.NodeTypeClient {
+		curSession.logging.Debug("handleClient", "Type: Connect to client")
+	}
 
 	// check certificate
 	if len(state.PeerCertificates) == 0 {
@@ -135,6 +141,7 @@ func (curSession *tlsSession) handleClient() {
 
 	// remode-node-name
 	curSession.remoteNodeName = peerCert.Subject.CommonName
+	curSession.logging.Debug("handleClient", fmt.Sprintf("RemodeNodeName: %s", curSession.remoteNodeName))
 
 	// check certificate
 	peerCertCheckResult := curSession.peerCertCheck(peerCert.Signature)
