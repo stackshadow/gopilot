@@ -20,25 +20,21 @@ package nodes
 
 import (
 	"core/config"
-	"github.com/mitchellh/mapstructure"
 )
 
 // SaveData will set the nodeType, hostname and port of an node ( will be created if not exist
+// Lesson Learned: mapstructure.Decode(nodeI, &node) don't work, because it drop fields that are not in the target struct
 func SaveData(nodeName string, nodeType int, host string, port int) error {
 
 	// get the single node
-	var node JSONNodeType
-	nodeI, err := GetNodeObject(nodeName)
-	if err == nil {
-		err = mapstructure.Decode(nodeI, node)
-		if err != nil {
-			return err
-		}
+	node, err := GetNodeObject(nodeName)
+	if err != nil {
+		return err
 	}
 
-	node.Type = float64(nodeType)
-	node.Host = host
-	node.Port = float64(port)
+	node["type"] = float64(nodeType)
+	node["host"] = host
+	node["port"] = float64(port)
 
 	// save it back
 	// first, get the nodes from config

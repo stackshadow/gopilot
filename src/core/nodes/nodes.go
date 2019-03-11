@@ -24,11 +24,9 @@ import (
 
 // JSONNodeType describe a node-configureation
 type JSONNodeType struct {
-	Host                 string  `json:"host"`
-	Port                 float64 `json:"port"`
-	Type                 float64 `json:"type"`
-	PeerCertSignatureReq string  `json:"peerCertSignatureReq"`
-	PeerCertSignature    string  `json:"peerCertSignature"`
+	Host string  `json:"host"`
+	Port float64 `json:"port"`
+	Type float64 `json:"type"`
 }
 
 const NodeTypeUndefined int = 0 // do nothing with it
